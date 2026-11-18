@@ -10,10 +10,10 @@
 
 ## 阶段 0：项目初始化（M1 前置）
 
-- [ ] 0.1 新建仓库与目录骨架（仓库名 `aqua-music`；工作目录 `D:/File/aqua-music/`）
-- [ ] 0.2 技术栈落地：Node + TypeScript（服务端）、Vue 3 + Vite（前端）、pnpm
-- [ ] 0.3 服务骨架：HTTP 服务、静态托管前端产物、端口探测（默认 9528，占用顺延）
-- [ ] 0.4 CI/脚本：dev/build/test 命令；测试框架沿用 `node --test`（纯模块约定，跨模块显式 `.ts` 后缀）
+- [x] 0.1 新建仓库与目录骨架（仓库名 `aqua-music`；工作目录 `D:/File/aqua-music/`）
+- [x] 0.2 技术栈落地：Node + TypeScript（服务端）、Vue 3 + Vite（前端）、pnpm
+- [x] 0.3 服务骨架：HTTP 服务、静态托管前端产物、端口探测（默认 9528，占用顺延）
+- [x] 0.4 CI/脚本：dev/build/test 命令；测试框架沿用 `node --test`（纯模块约定，跨模块显式 `.ts` 后缀）
 
 ## 阶段 1：设置与持久化基座
 
