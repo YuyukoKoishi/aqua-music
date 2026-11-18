@@ -7,11 +7,9 @@
     "skipLibCheck": true,
     "outDir": "dist/server",
     "rootDir": "src/server",
-    "types": [
-      "node"
-    ]
+    "allowImportingTsExtensions": true,
+    "noEmit": true,
+    "types": ["node"]
   },
-  "include": [
-    "src/server"
-  ]
+  "include": ["src/server"]
 }

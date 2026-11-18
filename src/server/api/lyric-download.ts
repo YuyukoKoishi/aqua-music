@@ -4,6 +4,7 @@ import { join, dirname } from 'node:path'
 import { searchAll } from '../search/index.ts'
 import { getRunner } from './routes.ts'
 import type { Deps } from './routes.ts'
+import { getMusicUrl } from '../lx/musicUrl.ts'
 
 /** 歌词端点：LX 脚本 lyric 动作优先；无脚本支持时 502 */
 export function mountLyricAndDownload(app: express.Express, deps: Deps): void {
@@ -33,7 +34,6 @@ export function mountLyricAndDownload(app: express.Express, deps: Deps): void {
       if (!settings.downloadDir) { res.status(400).json({ error: 'downloadDir not configured in settings' }); return }
       const runner = await getRunner(deps, body.scriptId)
       if (!runner) { res.status(404).json({ error: 'script not found' }); return }
-      const { getMusicUrl } = await import('../lx/musicUrl.ts')
       const { url } = await getMusicUrl(runner, body.source, { songmid: body.songmid }, body.quality ?? '320k')
       const resp = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0', Referer: 'https://y.qq.com/' } })
       if (!resp.ok || !resp.body) { res.status(502).json({ error: 'upstream fetch failed ' + resp.status }); return }

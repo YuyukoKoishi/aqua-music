@@ -3,6 +3,7 @@ import type { SongResult } from './types.ts'
 interface MgItem {
   id?: string
   contentId?: string
+  resourceType?: string
   name?: string
   singers?: { name: string }[]
   albums?: { name: string }[]

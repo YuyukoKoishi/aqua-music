@@ -17,7 +17,7 @@ export function startServer(port = DEFAULT_PORT): Promise<{ url: string; close: 
 }
 
 function isDirectRun(): boolean {
-  return process.argv[1] && import.meta.url === 'file:///' + process.argv[1].replace(/\\/g, '/')
+  return Boolean(process.argv[1] && import.meta.url === 'file:///' + process.argv[1].replace(/\\/g, '/'))
 }
 
 // production entry: probe from DEFAULT_PORT upward
