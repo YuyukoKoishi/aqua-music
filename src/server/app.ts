@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 import { mountPlaybackRoutes } from './playback/routes.ts'
 import { mountApiRoutes, type Deps } from './api/routes.ts'
+import { mountLyricAndDownload } from './api/lyric-download.ts'
 import { ScriptManager } from './scripts/manager.ts'
 import { SettingsManager } from './settings/settings.ts'
 
@@ -18,6 +19,7 @@ export function createServerApp(dataDir = 'data') {
     dataDir,
   }
   mountApiRoutes(app, deps)
+  mountLyricAndDownload(app, deps)
   mountPlaybackRoutes(app)
   const distDir = join(__dirname, '../../../frontend/dist')
   if (existsSync(distDir)) {
