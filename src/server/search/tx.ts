@@ -34,7 +34,7 @@ export function parseTx(body: unknown): SongResult[] {
   })
 }
 
-export async function searchTx(keyword: string, page: number, limit: number): Promise<SongResult[]> {
+export async function searchTx(keyword: string, page: number, limit: number, retryNum = 0): Promise<SongResult[]> {
   const data = {
     req: {
       module: 'music.search.SearchCgiService',
@@ -44,5 +44,12 @@ export async function searchTx(keyword: string, page: number, limit: number): Pr
   }
   const url = 'https://u.y.qq.com/cgi-bin/musicu.fcg?format=json&data=' + encodeURIComponent(JSON.stringify(data))
   const resp = await fetch(url, { headers: { Referer: 'https://y.qq.com/' } })
-  return parseTx(await resp.json())
+  const body = await resp.json() as Parameters<typeof parseTx>[0]
+  const results = parseTx(body)
+  // tx 偶发返回空列表，重试至 3 次（沿用 LX 社区惯例）
+  if (!results.length && retryNum < 2) {
+    await new Promise(r => setTimeout(r, 300 * (retryNum + 1)))
+    return searchTx(keyword, page, limit, retryNum + 1)
+  }
+  return results
 }
