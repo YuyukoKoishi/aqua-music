@@ -1,0 +1,14 @@
+{
+  "name": "aqua-music",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Local network music player: Node service + web UI, LX source scripts",
+  "scripts": {
+    "dev": "vite",
+    "dev:server": "tsx watch src/server/index.ts",
+    "build": "vite build && tsc -p tsconfig.server.json",
+    "test": "node --test",
+    "start": "node dist/server/index.js"
+  }
+}
