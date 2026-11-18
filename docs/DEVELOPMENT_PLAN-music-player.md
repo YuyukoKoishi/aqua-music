@@ -23,14 +23,14 @@
 
 ## 阶段 2：LX 运行器 + 搜索（M2）
 
-- [ ] 2.1 vm 运行器：加载脚本、`inited` 回调解析 `sources`/`supportQualitys`
-- [ ] 2.2 request shim：fetch 代理、header/cookie 透传、超时
-- [ ] 2.3 crypto 工具集（对齐 lx-music-desktop 约定）
-- [ ] 2.4 `musicUrl` 动作：音质降级链 + 多脚本重试 + URL 校验
-- [ ] 2.5 内置五平台搜索适配（移植 lx-music-desktop：wy/tx/kg/kw/mg 公开接口，统一结果模型）；聚合 API 可选兜底接入
-- [ ] 2.6 字符契合度排序（移植三期 `rankCandidates`：NFKC、多歌手、版本词过滤）
-- [ ] 2.7 单测：运行器、平台适配（响应解析用录制样本，不发真实请求）、排序
-- [ ] 2.8 集成测试：真实脚本跑通 wy 取链；五平台真实搜索各一轮
+- [x] 2.1 vm 运行器：加载脚本、`inited` 回调解析 `sources`/`supportQualitys`
+- [x] 2.2 request shim：fetch 代理、header/cookie 透传、超时
+- [x] 2.3 crypto 工具集（对齐 lx-music-desktop 约定）
+- [x] 2.4 `musicUrl` 动作：音质降级链 + 多脚本重试 + URL 校验
+- [x] 2.5 内置五平台搜索适配（移植 lx-music-desktop：wy/tx/kg/kw/mg 公开接口，统一结果模型）；聚合 API 可选兜底接入
+- [x] 2.6 字符契合度排序（移植三期 `rankCandidates`：NFKC、多歌手、版本词过滤）
+- [x] 2.7 单测：运行器、平台适配（响应解析用录制样本，不发真实请求）、排序
+- [x] 2.8 集成测试：真实脚本跑通 wy 取链；五平台真实搜索各一轮
 
 ## 阶段 3：播放（M3）
 
