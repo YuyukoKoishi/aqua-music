@@ -65,8 +65,8 @@
 - [x] 6.1 错误与降级完善（断网/音源失效/端口占用/直链失效提示）
 - [x] 6.2 打包：zip 单目录（Node 运行说明 + 启动脚本 + 前端产物）
 - [x] 6.3 README（含 fork 声明、参考项目致谢）
-- [ ] 6.4 多轮真机测试与修复
-- [ ] 6.5 GitHub 仓库发布 + Release（遵循既有 GitHub 流程：token、SSH key 已就绪）
+- [x] 6.4 多轮真机测试与修复
+- [x] 6.5 GitHub 仓库发布 + Release（遵循既有 GitHub 流程：token、SSH key 已就绪）
 
 ---
 
