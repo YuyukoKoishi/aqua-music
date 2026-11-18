@@ -1,0 +1,14 @@
+{
+  "playlists": [
+    {
+      "id": "favorites",
+      "name": "我喜欢",
+      "songs": []
+    },
+    {
+      "id": "pl_mwmfw75qx7rl",
+      "name": "test-list",
+      "songs": []
+    }
+  ]
+}

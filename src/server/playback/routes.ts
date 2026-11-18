@@ -52,7 +52,7 @@ export async function proxyAudio(req: express.Request, res: express.Response): P
 export function mountPlaybackRoutes(app: express.Express): void {
   app.get('/api/stream', proxyAudio)
   app.get('/api/frontend', (_req, res) => {
-    const dist = join(__dirname, '../../../frontend/dist/index.html')
+    const dist = join(__dirname, '../../frontend/dist/index.html')
     if (existsSync(dist)) res.sendFile(dist)
     else res.status(404).send('frontend not built; run: pnpm --dir frontend build')
   })

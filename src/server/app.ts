@@ -27,7 +27,7 @@ export function createServerApp(dataDir = 'data') {
   const downloadQueue = new DownloadQueue(deps)
   mountLibraryRoutes(app, deps, library, downloadQueue)
   mountPlaybackRoutes(app)
-  const distDir = join(__dirname, '../../../frontend/dist')
+  const distDir = join(__dirname, '../../frontend/dist')
   if (existsSync(distDir)) {
     app.use(express.static(distDir))
   }

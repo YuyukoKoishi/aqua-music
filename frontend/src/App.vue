@@ -16,8 +16,14 @@ const scriptError = ref('')
 const currentLyrics = ref<LyricLine[]>([])
 const currentLyricIdx = ref(-1)
 const lyricsBox = ref<HTMLElement | null>(null)
-const playlists = ref<{ name: string; songs: SongResult[] }[]>(JSON.parse(localStorage.getItem('aqua-playlists') ?? '[]'))
-const history = ref<{ song: SongResult; time: string }[]>(JSON.parse(localStorage.getItem('aqua-history') ?? '[]'))
+const playlists = ref<{ id: string; name: string; songs: SongResult[] }[]>([])
+const history = ref<{ song: SongResult; time: number; quality?: string }[]>([])
+
+async function refreshLibrary() {
+  playlists.value = (await (await fetch('/api/playlists')).json() as { playlists: typeof playlists.value }).playlists
+  const h = await (await fetch('/api/history')).json() as { entries: typeof history.value }
+  history.value = h.entries
+}
 
 const currentSong = computed(() => player.queue[player.index] ?? null)
 
@@ -52,9 +58,7 @@ async function playResult(song: SongResult) {
     playUrl(url)
     currentLyrics.value = []
     currentLyricIdx.value = -1
-    history.value.unshift({ song, time: new Date().toLocaleString() })
-    history.value = history.value.slice(0, 200)
-    localStorage.setItem('aqua-history', JSON.stringify(history.value))
+    await fetch('/api/history', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ song, quality }) })
     loadLyrics(song)
   } catch (e) {
     searchError.value = '播放失败: ' + (e instanceof Error ? e.message : String(e))
@@ -113,46 +117,63 @@ function cycleMode() {
 }
 
 const newPlaylistName = ref('')
-function savePlaylists() { localStorage.setItem('aqua-playlists', JSON.stringify(playlists.value)) }
-function createPlaylist() {
+async function createPlaylist() {
   if (!newPlaylistName.value.trim()) return
-  playlists.value.push({ name: newPlaylistName.value.trim(), songs: [] })
+  await fetch('/api/playlists', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: newPlaylistName.value.trim() }) })
   newPlaylistName.value = ''
-  savePlaylists()
+  await refreshLibrary()
 }
-function addToPlaylist(song: SongResult) {
-  if (!playlists.value.length) playlists.value.push({ name: '我喜欢', songs: [] })
-  playlists.value[0].songs.push(song)
-  savePlaylists()
+async function addToPlaylist(song: SongResult) {
+  const fav = playlists.value.find(p => p.id === 'favorites') ?? playlists.value[0]
+  if (!fav) return
+  await fetch('/api/playlists/' + fav.id + '/songs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ song }) })
+  await refreshLibrary()
 }
-function removeFromPlaylist(plIdx: number, songIdx: number) {
-  playlists.value[plIdx].songs.splice(songIdx, 1)
-  savePlaylists()
+async function removeFromPlaylist(plIdx: number, songIdx: number) {
+  await fetch('/api/playlists/' + playlists.value[plIdx].id + '/songs/' + songIdx, { method: 'DELETE' })
+  await refreshLibrary()
 }
-function deletePlaylist(i: number) { playlists.value.splice(i, 1); savePlaylists() }
+async function deletePlaylist(i: number) {
+  await fetch('/api/playlists/' + playlists.value[i].id, { method: 'DELETE' })
+  await refreshLibrary()
+}
 
 const downloadTasks = ref<{ song: SongResult; quality: string; status: string }[]>([])
 async function downloadSong(song: SongResult) {
   const script = scripts.value.find(s => s.enabled)
   if (!script) { searchError.value = '请先导入音源脚本'; return }
   const quality = pickQuality(song.types)
-  const task = { song, quality, status: '队列中' }
-  downloadTasks.value.push(task)
   try {
-    const resp = await fetch('/api/download', {
+    const resp = await fetch('/api/downloads', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ source: song.source, songmid: song.songmid, name: song.name, singer: song.singer, albumName: song.albumName, quality, scriptId: script.id }),
+      body: JSON.stringify({ song, quality, scriptId: script.id }),
     })
-    const j = await resp.json() as { ok?: boolean; error?: string }
-    task.status = j.ok ? '完成' : '失败: ' + (j.error ?? '')
+    const j = await resp.json() as { id?: string; error?: string }
+    if (j.id) pollDownloads()
+    else searchError.value = '下载失败: ' + (j.error ?? '')
   } catch (e) {
-    task.status = '失败: ' + (e instanceof Error ? e.message : String(e))
+    searchError.value = '下载失败: ' + (e instanceof Error ? e.message : String(e))
   }
 }
+
+let pollTimer: number | undefined
+function pollDownloads() {
+  if (pollTimer) return
+  pollTimer = window.setInterval(async () => {
+    const j = await (await fetch('/api/downloads')).json() as { tasks: { id: string; song: SongResult; quality: string; status: string; progress: number }[] }
+    downloadTasks.value = j.tasks.map(t => ({ song: t.song, quality: t.quality, status: t.status + (t.progress ? ' ' + t.progress + '%' : '') }))
+    if (j.tasks.every(t => t.status === 'done' || t.status === 'failed' || t.status === 'cancelled')) {
+      window.clearInterval(pollTimer)
+      pollTimer = undefined
+    }
+  }, 1000)
+}
+void pollDownloads()
 
 async function loadSettings() {
   settings.value = await getSettings()
   scripts.value = await listScripts()
+  await refreshLibrary()
 }
 async function onImportScript(file: File) {
   scriptError.value = ''
@@ -174,7 +195,10 @@ async function toggleScript(s: ScriptInfo) {
 async function saveSettingsLocal() {
   if (settings.value) settings.value = await saveSettings(settings.value)
 }
-function clearHistory() { history.value = []; localStorage.setItem('aqua-history', '[]') }
+async function clearHistory() {
+  await fetch('/api/history', { method: 'DELETE' })
+  await refreshLibrary()
+}
 void loadSettings()
 </script>
 

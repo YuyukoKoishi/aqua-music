@@ -1,0 +1,17 @@
+{
+  "qualityOrder": [
+    "128k",
+    "192k",
+    "320k",
+    "wav",
+    "flac",
+    "flac24bit",
+    "dolby",
+    "master"
+  ],
+  "downloadDir": "",
+  "nameTemplate": "{歌手} - {歌名}",
+  "duplicatePolicy": "rename",
+  "concurrency": 7,
+  "aggregateFallback": false
+}
