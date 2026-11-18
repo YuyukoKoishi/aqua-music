@@ -3,17 +3,28 @@ import { createServer as createNetServer } from 'node:net'
 import { existsSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
+import { mountPlaybackRoutes } from './playback/routes.ts'
+import { mountApiRoutes, type Deps } from './api/routes.ts'
+import { ScriptManager } from './scripts/manager.ts'
+import { SettingsManager } from './settings/settings.ts'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
-export function createServerApp() {
+export function createServerApp(dataDir = 'data') {
   const app = express()
+  const deps: Deps = {
+    scripts: new ScriptManager(dataDir),
+    settings: new SettingsManager(dataDir),
+    dataDir,
+  }
+  mountApiRoutes(app, deps)
+  mountPlaybackRoutes(app)
   const distDir = join(__dirname, '../../../frontend/dist')
   if (existsSync(distDir)) {
     app.use(express.static(distDir))
   }
   app.get('/api/health', (_req, res) => res.json({ ok: true, name: 'aqua-music' }))
-  return { app }
+  return { app, deps }
 }
 
 export function probePort(start: number, maxTries = 10): Promise<number> {
