@@ -12,18 +12,23 @@ interface PlayerState {
   volume: number
   mode: PlayMode
   currentQuality: string
+  retrying: boolean
 }
 
 export const player = reactive<PlayerState>({
   queue: [], index: -1, playing: false, currentTime: 0, duration: 0,
-  volume: 0.8, mode: 'sequence', currentQuality: '',
+  volume: 0.8, mode: 'sequence', currentQuality: '', retrying: false,
 })
 
 let audio: HTMLAudioElement | null = null
 let onEnded: (() => void) | null = null
+let onPlayError: (() => void) | null = null
 
 export function registerEnded(fn: () => void): void {
   onEnded = fn
+}
+export function registerPlayError(fn: () => void): void {
+  onPlayError = fn
 }
 
 export function getAudio(): HTMLAudioElement {
@@ -35,6 +40,11 @@ export function getAudio(): HTMLAudioElement {
     audio.addEventListener('play', () => { player.playing = true })
     audio.addEventListener('pause', () => { player.playing = false })
     audio.addEventListener('ended', () => { onEnded?.() })
+    audio.addEventListener('error', () => {
+      if (!audio!.src || player.retrying) return
+      player.playing = false
+      onPlayError?.()
+    })
   }
   return audio
 }

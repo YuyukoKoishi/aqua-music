@@ -1,10 +1,75 @@
 <script setup lang="ts">
 import { ref, computed, watch, nextTick } from 'vue'
 import { searchSongs, getPlayUrl, getSettings, saveSettings, listScripts, importScript, deleteScript, type SongResult, type Settings, type ScriptInfo } from './api'
-import { player, togglePlay, getAudio, playUrl, registerEnded } from './store'
+import { player, togglePlay, getAudio, playUrl, registerEnded, registerPlayError } from './store'
 import { parseLrcClient, currentLineIdx, type LyricLine } from './lrc'
 
-const tab = ref<'search' | 'playlists' | 'downloads' | 'settings'>('search')
+const tab = ref<'search' | 'boards' | 'playlists' | 'downloads' | 'settings'>('search')
+const boards = ref<{ id: string; name: string }[]>([])
+const boardId = ref('3778678')
+const boardSongs = ref<SongResult[]>([])
+const boardLoading = ref(false)
+const selected = ref<Set<string>>(new Set())
+const themeColor = ref(localStorage.getItem('aqua-theme') ?? '74,159,216')
+
+function applyTheme() {
+  document.documentElement.style.setProperty('--md-primary', 'rgb(' + themeColor.value + ')')
+  document.documentElement.style.setProperty('--md-primary-container', 'rgba(' + themeColor.value + ',0.18)')
+  localStorage.setItem('aqua-theme', themeColor.value)
+}
+function setTheme(v: string) {
+  themeColor.value = v
+  applyTheme()
+}
+
+const THEME_PRESETS = [
+  { label: '水蓝', rgb: '74,159,216' },
+  { label: '翠绿', rgb: '77,175,124' },
+  { label: '落霞', rgb: '228,110,90' },
+  { label: '紫罗兰', rgb: '142,106,204' },
+  { label: '琥珀', rgb: '222,153,58' },
+  { label: '樱粉', rgb: '214,105,154' },
+]
+
+async function loadBoards() {
+  if (boards.value.length) {
+    if (!boardSongs.value.length) void loadBoardSongs(boardId.value)
+    return
+  }
+  boards.value = (await (await fetch('/api/boards')).json() as { boards: typeof boards.value }).boards
+  if (!boardSongs.value.length) void loadBoardSongs(boardId.value)
+}
+async function loadBoardSongs(id: string) {
+  boardId.value = id
+  boardLoading.value = true
+  selected.value = new Set()
+  try {
+    boardSongs.value = (await (await fetch('/api/boards/' + id + '/songs')).json() as { results: SongResult[] }).results
+  } catch { boardSongs.value = [] } finally { boardLoading.value = false }
+}
+function toggleSelect(song: SongResult) {
+  const key = song.source + song.songmid
+  const next = new Set(selected.value)
+  if (next.has(key)) next.delete(key)
+  else next.add(key)
+  selected.value = next
+}
+function selectAllBoard() {
+  if (selected.value.size === boardSongs.value.length) selected.value = new Set()
+  else selected.value = new Set(boardSongs.value.map(s => s.source + s.songmid))
+}
+async function downloadSelected() {
+  for (const s of boardSongs.value) {
+    if (selected.value.has(s.source + s.songmid)) await downloadSong(s)
+  }
+}
+
+function playFromBoard(song: SongResult) {
+  if (!player.queue.length) player.queue.push(...boardSongs.value)
+  void playResult(song)
+}
+void loadBoards()
+void applyTheme()
 const keyword = ref('')
 const searchSource = ref('')
 const searchResults = ref<SongResult[]>([])
@@ -74,6 +139,7 @@ async function playResult(song: SongResult) {
     if (pos === -1) { player.queue.push(song); player.index = player.queue.length - 1 }
     else player.index = pos
     player.currentQuality = quality
+    retryCount = 0
     playUrl(url)
     currentLyrics.value = []
     currentLyricIdx.value = -1
@@ -92,6 +158,32 @@ registerEnded(() => {
     void playResult(player.queue[player.index])
   }
 })
+
+// 播放错误自动降级重试：音质逐级降
+let retryCount = 0
+registerPlayError(() => {
+  const song = player.queue[player.index]
+  if (!song || retryCount >= 3) { retryCount = 0; return }
+  retryCount++
+  const quality = pickQualityForRetry(song.types, retryCount)
+  void (async () => {
+    try {
+      const script = scripts.value.find(s => s.enabled)
+      if (!script) return
+      player.retrying = true
+      const { url, quality: actual } = await getPlayUrl(song.source, song.songmid, quality, script.id)
+      player.currentQuality = actual
+      playUrl(url)
+    } catch { /* 放弃重试 */ } finally {
+      setTimeout(() => { player.retrying = false }, 1000)
+    }
+  })()
+})
+
+function pickQualityForRetry(types: string[], attempt: number): string {
+  const order = (settings.value?.qualityOrder ?? []).filter(q => types.includes(q))
+  return order[Math.min(attempt, order.length - 1)] ?? '128k'
+}
 
 async function doSearch() {
   if (!keyword.value.trim()) return
@@ -237,6 +329,15 @@ async function clearHistory() {
   await refreshLibrary()
 }
 void loadSettings()
+
+window.addEventListener('keydown', e => {
+  const tag = (e.target as HTMLElement)?.tagName
+  if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') return
+  if (e.code === 'Space' && currentSong.value) {
+    e.preventDefault()
+    togglePlay()
+  }
+})
 </script>
 
 <template>
@@ -247,8 +348,9 @@ void loadSettings()
         <span class="brand-name">aqua-music</span>
       </div>
       <nav>
-        <button v-for="t in (['search','playlists','downloads','settings'] as const)" :key="t" class="nav-btn" :class="{ active: tab === t }" :data-tip="{ search: '搜索', playlists: '歌单', downloads: '下载', settings: '设置' }[t]" @click="tab = t">
+        <button v-for="t in (['search','boards','playlists','downloads','settings'] as const)" :key="t" class="nav-btn" :class="{ active: tab === t }" :data-tip="{ search: '搜索', boards: '排行榜', playlists: '歌单', downloads: '下载', settings: '设置' }[t]" @click="tab = t; t === 'boards' && loadBoards()">
           <span v-if="t === 'search'">⌕</span>
+          <span v-else-if="t === 'boards'">↯</span>
           <span v-else-if="t === 'playlists'">☰</span>
           <span v-else-if="t === 'downloads'">⤓</span>
           <span v-else>⚙</span>
@@ -284,6 +386,32 @@ void loadSettings()
           </div>
         </div>
         <p v-else-if="!searching && keyword" class="md-empty">没有结果</p>
+      </section>
+
+      <!-- 排行榜页 -->
+      <section v-else-if="tab === 'boards'" class="fade-in">
+        <div class="row" style="flex-wrap: wrap">
+          <button v-for="b in boards" :key="b.id" class="md-btn" :class="boardId === b.id ? 'filled' : 'text'" @click="loadBoardSongs(b.id)">{{ b.name }}</button>
+        </div>
+        <div v-if="selected.size" class="batch-bar md-card">
+          <span>已选 {{ selected.size }} 首</span>
+          <button class="md-btn text" @click="selectAllBoard">{{ selected.size === boardSongs.length ? '取消全选' : '全选' }}</button>
+          <button class="md-btn filled" @click="downloadSelected">批量下载</button>
+        </div>
+        <div v-if="boardLoading" class="md-empty">加载中…</div>
+        <div v-else-if="boardSongs.length" class="song-list md-card">
+          <div v-for="s in boardSongs" :key="s.songmid" class="song-row" :class="{ playing: currentSong?.songmid === s.songmid }">
+            <input type="checkbox" class="pick" :checked="selected.has(s.source + s.songmid)" @change="toggleSelect(s)" />
+            <div class="song-info">
+              <span class="song-name">{{ s.name }}</span>
+              <span class="song-sub">{{ s.singer }} · {{ s.albumName }}</span>
+            </div>
+            <div class="song-actions">
+              <button class="icon-btn" data-tip="播放" @click="playFromBoard(s)">▶</button>
+              <button class="icon-btn" data-tip="下载" @click="downloadSong(s)">⤓</button>
+            </div>
+          </div>
+        </div>
       </section>
 
       <!-- 歌单页 -->
@@ -340,6 +468,13 @@ void loadSettings()
 
       <!-- 设置页 -->
       <section v-else class="fade-in">
+        <div class="md-card">
+          <h3>主题色</h3>
+          <div class="theme-row">
+            <button v-for="p in THEME_PRESETS" :key="p.rgb" class="theme-dot" :style="{ background: 'rgb(' + p.rgb + ')', outline: themeColor === p.rgb ? '2px solid ' + 'rgb(' + p.rgb + ')' : 'none' }" :data-tip="p.label" @click="setTheme(p.rgb)"></button>
+            <input class="md-input narrow" v-model="themeColor" placeholder="r,g,b" @change="applyTheme" />
+          </div>
+        </div>
         <div class="md-card">
           <h3>音源脚本</h3>
           <label class="file-btn md-btn filled">
@@ -504,6 +639,10 @@ nav { display: flex; gap: 4px; }
 .md-btn:disabled { opacity: 0.5; }
 .md-error { color: var(--md-error); font-size: 13px; }
 .md-ok { color: #1b5e20; font-size: 13px; }
+.batch-bar { display: flex; align-items: center; gap: 14px; position: sticky; top: 8px; z-index: 20; }
+.pick { width: 16px; height: 16px; accent-color: var(--md-primary); }
+.theme-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.theme-dot { width: 30px; height: 30px; border-radius: 50%; border: none; cursor: pointer; }
 .md-empty { color: var(--md-on-surface-variant); text-align: center; padding: 20px 0; }
 .searchbar { display: flex; gap: 10px; align-items: center; }
 .row { display: flex; gap: 10px; margin-bottom: 14px; }

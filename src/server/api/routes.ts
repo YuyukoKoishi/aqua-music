@@ -5,6 +5,7 @@ import { loadLxScript, type RunnerHandle } from '../lx/runner.ts'
 import { getMusicUrl } from '../lx/musicUrl.ts'
 import { SettingsManager } from '../settings/settings.ts'
 import { ScriptManager } from '../scripts/manager.ts'
+import { BOARDS, getBoardSongs } from '../leaderboard/leaderboard.ts'
 
 export interface Deps {
   scripts: ScriptManager
@@ -25,6 +26,15 @@ export async function getRunner(deps: Deps, id: string): Promise<RunnerHandle | 
 }
 
 export function mountApiRoutes(app: express.Express, deps: Deps): void {
+  app.get('/api/boards', (_req, res) => res.json({ boards: BOARDS }))
+  app.get('/api/boards/:id/songs', async (req, res) => {
+    try {
+      res.json({ results: await getBoardSongs(req.params.id) })
+    } catch (e) {
+      res.status(502).json({ error: 'board fetch failed', detail: e instanceof Error ? e.message : String(e) })
+    }
+  })
+
   app.get('/api/search', async (req, res) => {
     const q = String(req.query.q ?? '')
     const page = Number(req.query.page ?? 1)
