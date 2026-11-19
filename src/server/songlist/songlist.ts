@@ -28,7 +28,7 @@ export async function getPlaylistSquare(cat: string, page = 1, limit = 30): Prom
   const resp = await fetch(`https://music.163.com/api/playlist/list?cat=${encodeURIComponent(cat || '全部')}&limit=${limit}&offset=${offset}&order=hot`, {
     headers: { Referer: 'https://music.163.com', Cookie: 'appver=2.9.7' },
   })
-  const j = await resp.json() as { playlists?: PlaylistSummary[]; total?: number }
+  const j = await resp.json() as { playlists?: { id: number; name: string; coverImgUrl?: string; trackCount?: number; playCount?: number; creator?: { nickname?: string } }[]; total?: number }
   return {
     total: j.total ?? 0,
     list: (j.playlists ?? []).map(p => ({

@@ -195,7 +195,7 @@ async function playResult(song: SongResult) {
     void fetch('/api/history', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ song, quality }) })
     loadLyrics(song)
   } catch (e) {
-    searchError.value = '播放失败: ' + (e instanceof Error ? e.message : String(e))
+    toast('播放失败: ' + (e instanceof Error ? e.message : String(e)), 'err')
   }
 }
 
@@ -316,7 +316,7 @@ async function downloadSong(song: SongResult) {
     if (j.id) pollDownloads()
     else searchError.value = '下载失败: ' + (j.error ?? '')
   } catch (e) {
-    searchError.value = '下载失败: ' + (e instanceof Error ? e.message : String(e))
+    toast('下载失败: ' + (e instanceof Error ? e.message : String(e)), 'err')
   }
 }
 function pollDownloads() {
@@ -358,6 +358,15 @@ async function saveSettingsLocal() {
   if (settings.value) settings.value = await saveSettings(settings.value)
 }
 
+// 全局 toast
+const toasts = ref<{ id: number; text: string; kind: 'ok' | 'err' }[]>([])
+let toastSeq = 0
+function toast(text: string, kind: 'ok' | 'err' = 'ok') {
+  const id = ++toastSeq
+  toasts.value.push({ id, text, kind })
+  setTimeout(() => { toasts.value = toasts.value.filter(t => t.id !== id) }, 3000)
+}
+
 const syncStatus = ref<{ ok: boolean; detail?: string; applied?: string[] } | null>(null)
 async function saveAndSync(direction: 'push' | 'pull') {
   await saveSettingsLocal()
@@ -385,6 +394,16 @@ window.addEventListener('keydown', e => {
   if (e.code === 'Space' && currentSong.value) {
     e.preventDefault()
     togglePlay()
+  }
+  if (e.code === 'ArrowUp' && player.index > 0) {
+    e.preventDefault()
+    player.index -= 1
+    void playResult(player.queue[player.index])
+  }
+  if (e.code === 'ArrowDown' && player.index + 1 < player.queue.length) {
+    e.preventDefault()
+    player.index += 1
+    void playResult(player.queue[player.index])
   }
 })
 </script>
@@ -562,7 +581,13 @@ window.addEventListener('keydown', e => {
 
       <!-- 设置页 -->
       <section v-else class="fade-in">
-        <div class="md-card">
+        <div class="row" style="margin-bottom:14px">
+          <a class="md-btn text" href="#set-theme">主题</a>
+          <a class="md-btn text" href="#set-scripts">音源</a>
+          <a class="md-btn text" href="#set-dl">播放与下载</a>
+          <a class="md-btn text" href="#set-sync">同步</a>
+        </div>
+        <div class="md-card" id="set-theme">
           <h3>主题</h3>
           <div class="row" style="margin-bottom:12px">
             <button v-for="m in (['light','dark','system'] as const)" :key="m" class="md-btn" :class="themeMode === m ? 'filled' : 'text'" @click="setThemeMode(m)">{{ { light: '浅色', dark: '深色', system: '跟随系统' }[m] }}</button>
@@ -572,7 +597,7 @@ window.addEventListener('keydown', e => {
             <input class="md-input narrow" v-model="themeColor" placeholder="r,g,b" @change="applyTheme" />
           </div>
         </div>
-        <div class="md-card">
+        <div class="md-card" id="set-scripts">
           <h3>音源脚本</h3>
           <label class="file-btn md-btn filled">
             导入 .js 脚本
@@ -590,7 +615,7 @@ window.addEventListener('keydown', e => {
             </div>
           </div>
         </div>
-        <div v-if="settings" class="md-card">
+        <div v-if="settings" class="md-card" id="set-dl">
           <h3>播放与下载</h3>
           <div class="settings-form">
             <label>下载路径 <input v-model="settings.downloadDir" class="md-input" placeholder="D:/Music" /></label>
@@ -605,7 +630,7 @@ window.addEventListener('keydown', e => {
             <button class="md-btn filled" @click="saveSettingsLocal">保存</button>
           </div>
         </div>
-        <div v-if="settings" class="md-card">
+        <div v-if="settings" class="md-card" id="set-sync">
           <h3>WebDAV 同步</h3>
           <div class="settings-form">
             <label>服务器地址 <input v-model="settings.webdavUrl" class="md-input" placeholder="https://dav.example.com/dav" /></label>
@@ -696,6 +721,11 @@ window.addEventListener('keydown', e => {
         </div>
       </div>
     </div>
+
+    <!-- 全局 toast -->
+    <div class="toast-wrap">
+      <div v-for="t in toasts" :key="t.id" class="toast" :class="t.kind">{{ t.text }}</div>
+    </div>
   </div>
 </template>
 
@@ -757,6 +787,10 @@ body { margin: 0; font-family: 'Segoe UI', Roboto, system-ui, sans-serif; backgr
 .pick { width: 16px; height: 16px; accent-color: var(--md-primary); }
 .theme-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .theme-dot { width: 30px; height: 30px; border-radius: 50%; border: none; cursor: pointer; }
+.toast-wrap { position: fixed; top: 16px; left: 50%; transform: translateX(-50%); z-index: 70; display: flex; flex-direction: column; gap: 8px; }
+.toast { background: #31394a; color: #fff; padding: 9px 18px; border-radius: 10px; font-size: 13px; max-width: 70vw; animation: fade 0.2s ease; }
+.toast.err { background: var(--md-error); }
+.toast.ok { background: var(--md-primary); }
 .md-empty { color: var(--md-on-surface-variant); text-align: center; padding: 20px 0; }
 .searchbar { display: flex; gap: 10px; align-items: center; }
 .row { display: flex; gap: 10px; margin-bottom: 14px; }
