@@ -190,6 +190,8 @@ function pickQuality(types: string[]): string {
   return '128k'
 }
 
+let retryCount = 0
+
 async function playResult(song: SongResult) {
   const script = scripts.value.find(s => s.enabled)
   if (!script) { searchError.value = '请先在设置中导入并启用一个音源脚本'; return }
@@ -227,7 +229,6 @@ registerEnded(() => {
 })
 
 // 播放错误自动降级重试：音质逐级降
-let retryCount = 0
 registerPlayError(() => {
   const song = player.queue[player.index]
   if (!song || retryCount >= 3) { retryCount = 0; return }
