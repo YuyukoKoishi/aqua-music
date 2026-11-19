@@ -1,21 +1,24 @@
 import type { SongResult } from '../search/types.ts'
+import { getKwBoardSongs, KW_BOARDS } from './kw-board.ts'
 
 export interface Board {
   id: string
   name: string
+  source: 'wy' | 'kw'
 }
 
 export const BOARDS: Board[] = [
-  { id: '3778678', name: '热歌榜' },
-  { id: '3779629', name: '新歌榜' },
-  { id: '19723756', name: '飙升榜' },
-  { id: '2884035', name: '原创榜' },
-  { id: '991319590', name: '说唱榜' },
-  { id: '71385702', name: 'ACG榜' },
-  { id: '2809513713', name: '欧美热歌榜' },
-  { id: '5059642708', name: '国风榜' },
-  { id: '5059633707', name: '摇滚榜' },
-  { id: '10520166', name: 'UK排行榜周榜' },
+  ...KW_BOARDS.map(b => ({ id: b.id, name: b.name, source: 'kw' as const })),
+  { id: '3778678', name: '热歌榜', source: 'wy' as const },
+  { id: '3779629', name: '新歌榜', source: 'wy' as const },
+  { id: '19723756', name: '飙升榜', source: 'wy' as const },
+  { id: '2884035', name: '原创榜', source: 'wy' as const },
+  { id: '991319590', name: '说唱榜', source: 'wy' as const },
+  { id: '71385702', name: 'ACG榜', source: 'wy' as const },
+  { id: '2809513713', name: '欧美热歌榜', source: 'wy' as const },
+  { id: '5059642708', name: '国风榜', source: 'wy' as const },
+  { id: '5059633707', name: '摇滚榜', source: 'wy' as const },
+  { id: '10520166', name: 'UK排行榜周榜', source: 'wy' as const },
 ]
 
 /** wy 排行榜：playlist detail（内联 tracks 不足时用 trackIds 批量补全） */

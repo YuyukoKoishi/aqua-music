@@ -37,7 +37,8 @@ async function squarePage_(p: number) {
   squarePage.value = Math.max(1, p)
   await loadSquare()
 }
-const boards = ref<{ id: string; name: string }[]>([])
+const boards = ref<{ id: string; name: string; source: string }[]>([])
+const boardSource = ref('wy')
 const boardId = ref('3778678')
 const boardSongs = ref<SongResult[]>([])
 const boardLoading = ref(false)
@@ -48,6 +49,7 @@ const themeMode = ref(localStorage.getItem('aqua-theme-mode') ?? 'system')
 function applyTheme() {
   document.documentElement.style.setProperty('--md-primary', 'rgb(' + themeColor.value + ')')
   document.documentElement.style.setProperty('--md-primary-container', 'rgba(' + themeColor.value + ',0.18)')
+  if (settings.value) document.documentElement.style.setProperty('--lyric-size', String(settings.value.lyricFontSize ?? 15))
   const dark = themeMode.value === 'dark' || (themeMode.value === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches)
   document.documentElement.dataset.theme = dark ? 'dark' : 'light'
   localStorage.setItem('aqua-theme', themeColor.value)
@@ -82,18 +84,19 @@ const THEME_PRESETS = [
 
 async function loadBoards() {
   if (boards.value.length) {
-    if (!boardSongs.value.length) void loadBoardSongs(boardId.value)
+    if (!boardSongs.value.length) void loadBoardSongs(boardSource.value, boardId.value)
     return
   }
   boards.value = (await (await fetch('/api/boards')).json() as { boards: typeof boards.value }).boards
-  if (!boardSongs.value.length) void loadBoardSongs(boardId.value)
+  if (!boardSongs.value.length) void loadBoardSongs(boardSource.value, boardId.value)
 }
-async function loadBoardSongs(id: string) {
+async function loadBoardSongs(source: string, id: string) {
+  boardSource.value = source
   boardId.value = id
   boardLoading.value = true
   selected.value = new Set()
   try {
-    boardSongs.value = (await (await fetch('/api/boards/' + id + '/songs')).json() as { results: SongResult[] }).results
+    boardSongs.value = (await (await fetch(`/api/boards/${source}/${id}/songs`)).json() as { results: SongResult[] }).results
   } catch { boardSongs.value = [] } finally { boardLoading.value = false }
 }
 function toggleSelect(song: SongResult) {
@@ -146,6 +149,14 @@ const modes = [
 const currentSong = computed(() => player.queue[player.index] ?? null)
 const currentMode = computed(() => modes.find(m => m.id === player.mode) ?? modes[0])
 
+// 播放位置记忆
+setInterval(() => {
+  const song = player.queue[player.index]
+  if (song && player.currentTime > 5) {
+    localStorage.setItem('aqua-pos', JSON.stringify({ source: song.source, songmid: song.songmid, time: player.currentTime }))
+  }
+}, 5000)
+
 watch(() => player.currentTime, async (t) => {
   if (!currentLyrics.value.length) return
   const idx = currentLineIdx(currentLyrics.value, t)
@@ -190,6 +201,13 @@ async function playResult(song: SongResult) {
     player.currentQuality = quality
     retryCount = 0
     playUrl(url)
+    // 恢复上次播放位置
+    try {
+      const pos = JSON.parse(localStorage.getItem('aqua-pos') ?? 'null') as { source: string; songmid: string; time: number } | null
+      if (pos && pos.source === song.source && pos.songmid === song.songmid && pos.time > 5) {
+        getAudio().addEventListener('loadedmetadata', () => { getAudio().currentTime = pos.time }, { once: true })
+      }
+    } catch { /* ignore */ }
     currentLyrics.value = []
     currentLyricIdx.value = -1
     void fetch('/api/history', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ song, quality }) })
@@ -504,7 +522,9 @@ window.addEventListener('keydown', e => {
       <!-- 排行榜页 -->
       <section v-else-if="tab === 'boards'" class="fade-in">
         <div class="row" style="flex-wrap: wrap">
-          <button v-for="b in boards" :key="b.id" class="md-btn" :class="boardId === b.id ? 'filled' : 'text'" @click="loadBoardSongs(b.id)">{{ b.name }}</button>
+          <template v-for="b in boards" :key="b.source + b.id">
+            <button class="md-btn" :class="boardSource === b.source && boardId === b.id ? 'filled' : 'text'" @click="loadBoardSongs(b.source, b.id)">{{ b.source === 'kw' ? '酷' : '网' }}·{{ b.name }}</button>
+          </template>
         </div>
         <div v-if="selected.size" class="batch-bar md-card">
           <span>已选 {{ selected.size }} 首</span>
@@ -627,6 +647,7 @@ window.addEventListener('keydown', e => {
               </select>
             </label>
             <label class="check"><input v-model="settings.aggregateFallback" type="checkbox" /> 聚合 API 兜底</label>
+            <label>歌词字号 <input v-model.number="settings.lyricFontSize" class="md-input narrow" type="number" min="12" max="28" /></label>
             <button class="md-btn filled" @click="saveSettingsLocal">保存</button>
           </div>
         </div>
@@ -844,7 +865,7 @@ body { margin: 0; font-family: 'Segoe UI', Roboto, system-ui, sans-serif; backgr
 .big-cover { width: 220px; height: 220px; border-radius: 24px; background: var(--md-primary); color: #fff; display: grid; place-items: center; font-size: 84px; }
 .pp-left h2 { margin: 12px 0 0; font-size: 20px; text-align: center; }
 .pp-lyrics { flex: 1; overflow-y: auto; padding: 30px 10px; text-align: center; scroll-behavior: smooth; }
-.lyric-line { padding: 8px 0; color: var(--md-on-surface-variant); font-size: 15px; cursor: pointer; border-radius: 10px; display: flex; flex-direction: column; }
+.lyric-line { padding: 8px 0; color: var(--md-on-surface-variant); font-size: calc(var(--lyric-size, 15) * 1px); cursor: pointer; border-radius: 10px; display: flex; flex-direction: column; }
 .lyric-line:hover { background: var(--md-surface-variant); }
 .lyric-line.active { color: var(--md-primary); font-size: 17px; font-weight: 600; }
 .trans { font-size: 12px; color: var(--md-on-surface-variant); margin-top: 2px; }

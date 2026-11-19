@@ -6,6 +6,7 @@ import { getMusicUrl } from '../lx/musicUrl.ts'
 import { SettingsManager } from '../settings/settings.ts'
 import { ScriptManager } from '../scripts/manager.ts'
 import { BOARDS, getBoardSongs } from '../leaderboard/leaderboard.ts'
+import { getKwBoardSongs } from '../leaderboard/kw-board.ts'
 import { getPlaylistSquare, getPlaylistDetail, getTags } from '../songlist/songlist.ts'
 
 export interface Deps {
@@ -47,9 +48,11 @@ export function mountApiRoutes(app: express.Express, deps: Deps): void {
   })
 
   app.get('/api/boards', (_req, res) => res.json({ boards: BOARDS }))
-  app.get('/api/boards/:id/songs', async (req, res) => {
+  app.get('/api/boards/:source/:id/songs', async (req, res) => {
+    const { source, id } = req.params
     try {
-      res.json({ results: await getBoardSongs(req.params.id) })
+      const results = source === 'kw' ? await getKwBoardSongs(id) : await getBoardSongs(id)
+      res.json({ results })
     } catch (e) {
       res.status(502).json({ error: 'board fetch failed', detail: e instanceof Error ? e.message : String(e) })
     }

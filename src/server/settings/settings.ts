@@ -12,6 +12,7 @@ export interface Settings {
   webdavUsername: string
   webdavPassword: string
   webdavPath: string
+  lyricFontSize: number
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -25,6 +26,7 @@ export const DEFAULT_SETTINGS: Settings = {
   webdavUsername: '',
   webdavPassword: '',
   webdavPath: 'aqua-music',
+  lyricFontSize: 15,
 }
 
 export class SettingsManager {
