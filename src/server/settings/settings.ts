@@ -8,6 +8,10 @@ export interface Settings {
   duplicatePolicy: 'skip' | 'overwrite' | 'rename'
   concurrency: number
   aggregateFallback: boolean
+  webdavUrl: string
+  webdavUsername: string
+  webdavPassword: string
+  webdavPath: string
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -17,6 +21,10 @@ export const DEFAULT_SETTINGS: Settings = {
   duplicatePolicy: 'rename',
   concurrency: 3,
   aggregateFallback: false,
+  webdavUrl: '',
+  webdavUsername: '',
+  webdavPassword: '',
+  webdavPath: 'aqua-music',
 }
 
 export class SettingsManager {

@@ -216,6 +216,22 @@ async function toggleScript(s: ScriptInfo) {
 async function saveSettingsLocal() {
   if (settings.value) settings.value = await saveSettings(settings.value)
 }
+
+const syncStatus = ref<{ ok: boolean; detail?: string; applied?: string[] } | null>(null)
+async function saveAndSync(direction: 'push' | 'pull') {
+  await saveSettingsLocal()
+  syncStatus.value = { ok: false, detail: direction === 'push' ? '备份中…' : '恢复中…' }
+  try {
+    const resp = await fetch('/api/sync/' + direction, { method: 'POST' })
+    const j = await resp.json() as { ok: boolean; detail?: string; applied?: string[] }
+    syncStatus.value = j.ok
+      ? { ok: true, detail: direction === 'push' ? '备份成功' : '恢复成功: ' + (j.applied ?? []).join(', ') }
+      : { ok: false, detail: j.detail ?? '失败' }
+    if (j.ok && direction === 'pull') await refreshLibrary()
+  } catch (e) {
+    syncStatus.value = { ok: false, detail: e instanceof Error ? e.message : String(e) }
+  }
+}
 async function clearHistory() {
   await fetch('/api/history', { method: 'DELETE' })
   await refreshLibrary()
@@ -357,6 +373,20 @@ void loadSettings()
             <button class="md-btn filled" @click="saveSettingsLocal">保存</button>
           </div>
         </div>
+        <div v-if="settings" class="md-card">
+          <h3>WebDAV 同步</h3>
+          <div class="settings-form">
+            <label>服务器地址 <input v-model="settings.webdavUrl" class="md-input" placeholder="https://dav.example.com/dav" /></label>
+            <label>用户名 <input v-model="settings.webdavUsername" class="md-input" /></label>
+            <label>密码 <input v-model="settings.webdavPassword" class="md-input" type="password" /></label>
+            <label>同步目录 <input v-model="settings.webdavPath" class="md-input" /></label>
+            <div class="row">
+              <button class="md-btn filled" @click="saveAndSync('push')">备份到云端</button>
+              <button class="md-btn text" @click="saveAndSync('pull')">从云端恢复</button>
+            </div>
+            <p v-if="syncStatus" :class="syncStatus.ok ? 'md-ok' : 'md-error'">{{ syncStatus.detail }}</p>
+          </div>
+        </div>
       </section>
     </main>
 
@@ -473,6 +503,7 @@ nav { display: flex; gap: 4px; }
 .md-btn.text { background: none; color: var(--md-primary); }
 .md-btn:disabled { opacity: 0.5; }
 .md-error { color: var(--md-error); font-size: 13px; }
+.md-ok { color: #1b5e20; font-size: 13px; }
 .md-empty { color: var(--md-on-surface-variant); text-align: center; padding: 20px 0; }
 .searchbar { display: flex; gap: 10px; align-items: center; }
 .row { display: flex; gap: 10px; margin-bottom: 14px; }

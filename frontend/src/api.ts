@@ -15,6 +15,10 @@ export interface Settings {
   duplicatePolicy: string
   concurrency: number
   aggregateFallback: boolean
+  webdavUrl: string
+  webdavUsername: string
+  webdavPassword: string
+  webdavPath: string
 }
 
 export interface ScriptInfo { id: string; filename: string; enabled: boolean }

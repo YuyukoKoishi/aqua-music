@@ -6,18 +6,34 @@ import { getRunner } from './routes.ts'
 import type { Deps } from './routes.ts'
 import { getMusicUrl } from '../lx/musicUrl.ts'
 
-/** 歌词端点：LX 脚本 lyric 动作优先；无脚本支持时 502 */
+/** 歌词端点：LX 脚本 lyric 动作优先，平台直连 API 兜底（移植 lx-music-desktop 歌词实现） */
 export function mountLyricAndDownload(app: express.Express, deps: Deps): void {
   app.get('/api/lyric', async (req, res) => {
-    const { source, songmid, scriptId } = req.query as Record<string, string>
+    const { source, songmid, scriptId, name, hash, interval } = req.query as Record<string, string>
     if (!source || !songmid) { res.status(400).json({ error: 'missing source/songmid' }); return }
-    if (!scriptId) { res.status(400).json({ error: 'missing scriptId' }); return }
-    const runner = await getRunner(deps, scriptId)
-    if (!runner) { res.status(404).json({ error: 'script not found' }); return }
+    // 1) 脚本 lyric 动作
+    if (scriptId) {
+      const runner = await getRunner(deps, scriptId)
+      if (runner && runner.sources[source]?.actions.includes('lyric')) {
+        try {
+          const lyric = await runner.call(source, 'lyric', { songmid, musicInfo: { songmid, name } }, 15000) as string | { lyric?: string }
+          const text = typeof lyric === 'string' ? lyric : lyric?.lyric ?? ''
+          if (text) { res.json({ lyric: text, from: 'script' }); return }
+        } catch { /* fall through to platform */ }
+      }
+    }
+    // 2) 平台直连兜底
     try {
-      const lyric = await runner.call(source, 'lyric', { songmid: songmid, musicInfo: { songmid } }, 15000) as string | { lyric: string }
-      const text = typeof lyric === 'string' ? lyric : lyric?.lyric ?? ''
-      res.json({ lyric: text })
+      const { getWyLyric, getKgLyric, getKwLyric, getTxLyric } = await import('../lyric/platform.ts')
+      let result
+      switch (source) {
+        case 'wy': result = await getWyLyric(songmid); break
+        case 'kg': result = await getKgLyric(name ?? songmid, hash ?? '', Number(interval ?? 0) || 240000); break
+        case 'kw': result = await getKwLyric(songmid); break
+        case 'tx': result = await getTxLyric(songmid); break
+        default: throw new Error('no platform lyric adapter for ' + source)
+      }
+      res.json({ lyric: result.lyric, tlyric: result.tlyric ?? '', from: 'platform' })
     } catch (e) {
       res.status(404).json({ error: 'no lyric', detail: e instanceof Error ? e.message : String(e) })
     }

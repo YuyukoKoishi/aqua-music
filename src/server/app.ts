@@ -6,6 +6,7 @@ import { dirname, join } from 'node:path'
 import { mountPlaybackRoutes } from './playback/routes.ts'
 import { mountApiRoutes, type Deps } from './api/routes.ts'
 import { mountLyricAndDownload } from './api/lyric-download.ts'
+import { mountSyncRoutes } from './api/sync-routes.ts'
 import { mountLibraryRoutes } from './api/library-routes.ts'
 import { LibraryManager } from './library/library.ts'
 import { DownloadQueue } from './download/queue.ts'
@@ -23,6 +24,7 @@ export function createServerApp(dataDir = 'data') {
   }
   mountApiRoutes(app, deps)
   mountLyricAndDownload(app, deps)
+  mountSyncRoutes(app, deps)
   const library = new LibraryManager(dataDir)
   const downloadQueue = new DownloadQueue(deps)
   mountLibraryRoutes(app, deps, library, downloadQueue)
