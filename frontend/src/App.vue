@@ -4,7 +4,39 @@ import { searchSongs, getPlayUrl, getSettings, saveSettings, listScripts, import
 import { player, togglePlay, getAudio, playUrl, registerEnded, registerPlayError } from './store'
 import { parseLrcClient, currentLineIdx, type LyricLine } from './lrc'
 
-const tab = ref<'search' | 'boards' | 'playlists' | 'downloads' | 'settings'>('search')
+const tab = ref<'search' | 'songList' | 'boards' | 'playlists' | 'downloads' | 'settings'>('search')
+const squareTag = ref('全部')
+const squarePlaylists = ref<{ id: number; name: string; cover: string; trackCount: number; playCount?: number }[]>([])
+const squarePage = ref(1)
+const squareTotal = ref(0)
+const squareLoading = ref(false)
+const detailPlaylist = ref<{ id: number; name: string; cover: string; songs: SongResult[] } | null>(null)
+const detailLoading = ref(false)
+
+function switchTab(t: typeof tab.value) {
+  tab.value = t
+  if (t === 'boards') void loadBoards()
+  if (t === 'songList') void loadSquare()
+}
+async function loadSquare() {
+  squareLoading.value = true
+  try {
+    const j = await (await fetch('/api/songlist?cat=' + encodeURIComponent(squareTag.value) + '&page=' + squarePage.value)).json() as { total: number; list: typeof squarePlaylists.value }
+    squarePlaylists.value = j.list
+    squareTotal.value = j.total
+  } catch { squarePlaylists.value = [] } finally { squareLoading.value = false }
+}
+async function openDetail(id: number) {
+  detailLoading.value = true
+  try {
+    detailPlaylist.value = await (await fetch('/api/songlist/' + id)).json() as never
+  } finally { detailLoading.value = false }
+}
+function closeDetail() { detailPlaylist.value = null }
+async function squarePage_(p: number) {
+  squarePage.value = Math.max(1, p)
+  await loadSquare()
+}
 const boards = ref<{ id: string; name: string }[]>([])
 const boardId = ref('3778678')
 const boardSongs = ref<SongResult[]>([])
@@ -33,6 +65,12 @@ function setTheme(v: string) {
   applyTheme()
 }
 
+const SQUARE_TAGS = [
+  { name: '语种', tags: ['华语', '欧美', '日语', '韩语', '粤语'] },
+  { name: '风格', tags: ['流行', '摇滚', '民谣', '电子', '说唱', '古风', '爵士', '古典'] },
+  { name: '场景', tags: ['清晨', '夜晚', '学习', '运动', '驾车', '旅行'] },
+  { name: '主题', tags: ['恋爱', '治愈', '伤感', '怀旧', '青春'] },
+]
 const THEME_PRESETS = [
   { label: '水蓝', rgb: '74,159,216' },
   { label: '翠绿', rgb: '77,175,124' },
@@ -353,21 +391,19 @@ window.addEventListener('keydown', e => {
 
 <template>
   <div class="app">
-    <header class="topbar">
-      <div class="brand">
-        <span class="brand-icon">♪</span>
-        <span class="brand-name">aqua-music</span>
-      </div>
-      <nav>
-        <button v-for="t in (['search','boards','playlists','downloads','settings'] as const)" :key="t" class="nav-btn" :class="{ active: tab === t }" :data-tip="{ search: '搜索', boards: '排行榜', playlists: '歌单', downloads: '下载', settings: '设置' }[t]" @click="tab = t; t === 'boards' && loadBoards()">
+    <aside class="sidebar">
+      <div class="brand-icon" data-tip="aqua-music">♪</div>
+      <nav class="side-nav">
+        <button v-for="t in (['search','songList','boards','playlists','downloads','settings'] as const)" :key="t" class="nav-btn" :class="{ active: tab === t }" :data-tip="{ search: '搜索', songList: '歌单广场', boards: '排行榜', playlists: '我的歌单', downloads: '下载', settings: '设置' }[t]" @click="switchTab(t)">
           <span v-if="t === 'search'">⌕</span>
+          <span v-else-if="t === 'songList'">◉</span>
           <span v-else-if="t === 'boards'">↯</span>
           <span v-else-if="t === 'playlists'">☰</span>
           <span v-else-if="t === 'downloads'">⤓</span>
           <span v-else>⚙</span>
         </button>
       </nav>
-    </header>
+    </aside>
 
     <main class="page">
       <!-- 搜索页 -->
@@ -397,6 +433,53 @@ window.addEventListener('keydown', e => {
           </div>
         </div>
         <p v-else-if="!searching && keyword" class="md-empty">没有结果</p>
+      </section>
+
+      <!-- 歌单广场 -->
+      <section v-else-if="tab === 'songList'" class="fade-in">
+        <div class="row" style="flex-wrap: wrap">
+          <button class="md-btn" :class="squareTag === '全部' ? 'filled' : 'text'" @click="squareTag = '全部'; loadSquare()">全部</button>
+          <template v-for="g in SQUARE_TAGS" :key="g.name">
+            <button v-for="tag in g.tags" :key="tag" class="md-btn" :class="squareTag === tag ? 'filled' : 'text'" @click="squareTag = tag; squarePage = 1; loadSquare()">{{ tag }}</button>
+          </template>
+        </div>
+        <div v-if="squareLoading" class="md-empty">加载中…</div>
+        <div v-else class="square-grid">
+          <div v-for="p in squarePlaylists" :key="p.id" class="square-item md-card" @click="openDetail(p.id)">
+            <img :src="p.cover" loading="lazy" class="square-cover" />
+            <span class="square-name">{{ p.name }}</span>
+            <span class="song-sub">{{ p.trackCount }} 首 · {{ (p.playCount ?? 0) > 10000 ? ((p.playCount! / 10000).toFixed(1) + '万') : p.playCount }} 次播放</span>
+          </div>
+        </div>
+        <div class="row" style="justify-content:center">
+          <button class="md-btn text" :disabled="squarePage <= 1" @click="squarePage_(squarePage - 1)">上一页</button>
+          <span class="muted">{{ squarePage }} / {{ Math.ceil(squareTotal / 30) }}</span>
+          <button class="md-btn text" :disabled="squarePage >= Math.ceil(squareTotal / 30)" @click="squarePage_(squarePage + 1)">下一页</button>
+        </div>
+        <div v-if="detailPlaylist" class="player-overlay" @click.self="closeDetail">
+          <div class="player-page">
+            <button class="icon-btn close" @click="closeDetail">✕</button>
+            <div class="pp-left">
+              <img :src="detailPlaylist.cover" class="big-cover" style="object-fit:cover" />
+              <h2>{{ detailPlaylist.name }}</h2>
+              <button class="md-btn filled" @click="downloadTasks.length = 0; detailPlaylist.songs.forEach(s => downloadSong(s))">全部下载</button>
+            </div>
+            <div class="pp-lyrics" style="text-align:left">
+              <div v-for="s in detailPlaylist.songs" :key="s.songmid" class="song-row">
+                <div class="song-info">
+                  <span class="song-name">{{ s.name }}</span>
+                  <span class="song-sub">{{ s.singer }} · {{ s.albumName }}</span>
+                </div>
+                <div class="song-actions">
+                  <button class="icon-btn" data-tip="播放" @click="playResult(s)">▶</button>
+                  <button class="icon-btn" data-tip="下载" @click="downloadSong(s)">⤓</button>
+                  <button class="icon-btn" data-tip="收藏" @click="addToPlaylist(s)">♡</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div v-if="detailLoading" class="md-empty">加载详情…</div>
       </section>
 
       <!-- 排行榜页 -->
@@ -642,20 +725,24 @@ window.addEventListener('keydown', e => {
 * { box-sizing: border-box; }
 body { margin: 0; font-family: 'Segoe UI', Roboto, system-ui, sans-serif; background: var(--md-surface); color: var(--md-on-surface); transition: background 0.2s; }
 .md-card, .controlbar, .player-page { transition: background 0.2s, border-color 0.2s; }
-.app { display: flex; flex-direction: column; min-height: 100vh; }
-.topbar { display: flex; align-items: center; justify-content: space-between; padding: 10px 24px; background: var(--md-surface); border-bottom: 1px solid var(--md-surface-variant); }
-.brand { display: flex; align-items: center; gap: 10px; }
-.brand-icon { width: 34px; height: 34px; display: grid; place-items: center; background: var(--md-primary); color: #fff; border-radius: 12px; font-size: 18px; }
-.brand-name { font-weight: 600; letter-spacing: 0.3px; }
-nav { display: flex; gap: 4px; }
-.nav-btn { position: relative; background: none; border: none; font-size: 18px; padding: 10px 18px; border-radius: 20px; cursor: pointer; color: var(--md-on-surface-variant); }
+.app { display: flex; min-height: 100vh; }
+.sidebar { position: fixed; left: 0; top: 0; bottom: 0; width: 72px; background: var(--md-card); border-right: 1px solid var(--md-surface-variant); display: flex; flex-direction: column; align-items: center; padding: 14px 0; z-index: 45; }
+.brand-icon { width: 40px; height: 40px; display: grid; place-items: center; background: var(--md-primary); color: #fff; border-radius: 12px; font-size: 20px; margin-bottom: 18px; }
+.side-nav { display: flex; flex-direction: column; gap: 6px; }
+.side-nav .nav-btn { font-size: 19px; padding: 13px; }
+.square-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 14px; }
+.square-item { cursor: pointer; padding: 10px; display: flex; flex-direction: column; gap: 6px; }
+.square-item:hover { border-color: var(--md-primary); }
+.square-cover { width: 100%; aspect-ratio: 1; border-radius: 10px; object-fit: cover; }
+.square-name { font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.nav-btn { position: relative; background: none; border: none; font-size: 18px; padding: 10px 18px; border-radius: 14px; cursor: pointer; color: var(--md-on-surface-variant); }
 .nav-btn.active { background: var(--md-primary-container); color: var(--md-on-surface); }
 .nav-btn:hover::after, .icon-btn:hover::after {
   content: attr(data-tip);
   position: absolute; bottom: -30px; left: 50%; transform: translateX(-50%);
   background: #333a45; color: #fff; padding: 3px 10px; border-radius: 6px; font-size: 12px; white-space: nowrap; z-index: 60;
 }
-.page { flex: 1; padding: 20px 28px; overflow-y: auto; padding-bottom: 110px; }
+.page { flex: 1; margin-left: 72px; padding: 20px 28px; overflow-y: auto; padding-bottom: 110px; width: calc(100% - 72px); }
 .md-card { background: var(--md-card); border-radius: 14px; padding: 18px 20px; border: 1px solid var(--md-surface-variant); margin-bottom: 16px; }
 .md-input { background: var(--md-surface-variant); border: none; border-radius: 10px; padding: 10px 14px; font-size: 14px; color: var(--md-on-surface); outline: none; flex: 1; }
 .md-input.narrow { flex: 0 0 120px; }

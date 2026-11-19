@@ -55,7 +55,7 @@ interface WyTrack {
   sq?: unknown
 }
 
-function toSongResult(item: WyTrack): SongResult {
+export function toSongResult(item: WyTrack): SongResult {
   const types: string[] = ['128k']
   if (item.sq || item.privilege?.maxbr === 999000) types.push('flac')
   if (item.h || (item.privilege?.maxbr ?? 0) >= 320000) types.push('320k')

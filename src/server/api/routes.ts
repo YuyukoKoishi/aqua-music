@@ -6,6 +6,7 @@ import { getMusicUrl } from '../lx/musicUrl.ts'
 import { SettingsManager } from '../settings/settings.ts'
 import { ScriptManager } from '../scripts/manager.ts'
 import { BOARDS, getBoardSongs } from '../leaderboard/leaderboard.ts'
+import { getPlaylistSquare, getPlaylistDetail, getTags } from '../songlist/songlist.ts'
 
 export interface Deps {
   scripts: ScriptManager
@@ -26,6 +27,25 @@ export async function getRunner(deps: Deps, id: string): Promise<RunnerHandle | 
 }
 
 export function mountApiRoutes(app: express.Express, deps: Deps): void {
+  app.get('/api/songlist/tags', (_req, res) => res.json({ groups: getTags() }))
+  app.get('/api/songlist', async (req, res) => {
+    const cat = String(req.query.cat ?? '全部')
+    const page = Number(req.query.page ?? 1)
+    const limit = Math.min(Number(req.query.limit ?? 30), 60)
+    try {
+      res.json(await getPlaylistSquare(cat, page, limit))
+    } catch (e) {
+      res.status(502).json({ error: 'songlist fetch failed', detail: e instanceof Error ? e.message : String(e) })
+    }
+  })
+  app.get('/api/songlist/:id', async (req, res) => {
+    try {
+      res.json(await getPlaylistDetail(Number(req.params.id)))
+    } catch (e) {
+      res.status(502).json({ error: 'songlist detail failed', detail: e instanceof Error ? e.message : String(e) })
+    }
+  })
+
   app.get('/api/boards', (_req, res) => res.json({ boards: BOARDS }))
   app.get('/api/boards/:id/songs', async (req, res) => {
     try {
