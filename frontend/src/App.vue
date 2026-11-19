@@ -121,7 +121,6 @@ function playFromBoard(song: SongResult) {
   void playResult(song)
 }
 void loadBoards()
-void applyTheme()
 const keyword = ref('')
 const searchSource = ref('')
 const searchResults = ref<SongResult[]>([])
@@ -417,6 +416,7 @@ async function clearHistory() {
   await refreshLibrary()
 }
 void loadSettings()
+void applyTheme()
 
 window.addEventListener('keydown', e => {
   const tag = (e.target as HTMLElement)?.tagName
