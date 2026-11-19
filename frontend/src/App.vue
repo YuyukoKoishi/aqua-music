@@ -257,7 +257,7 @@ async function doSearch() {
   searching.value = true
   searchError.value = ''
   try {
-    searchResults.value = await searchSongs(keyword.value, searchSource.value)
+    searchResults.value = await searchSongs(keyword.value, searchSource.value || settings.value?.defaultSource || '', 1, settings.value?.searchLimit || 30)
   } catch (e) {
     searchError.value = e instanceof Error ? e.message : String(e)
     searchResults.value = []
@@ -386,6 +386,17 @@ function toast(text: string, kind: 'ok' | 'err' = 'ok') {
 }
 
 const syncStatus = ref<{ ok: boolean; detail?: string; applied?: string[] } | null>(null)
+async function exportData() {
+  const [pls, hs] = await Promise.all([fetch('/api/playlists').then(r => r.json()), fetch('/api/history').then(r => r.json())])
+  const blob = new Blob([JSON.stringify({ exportedAt: new Date().toISOString(), playlists: pls.playlists, history: hs.entries }, null, 2)], { type: 'application/json' })
+  const a = document.createElement('a')
+  a.href = URL.createObjectURL(blob)
+  a.download = 'aqua-music-backup.json'
+  a.click()
+  URL.revokeObjectURL(a.href)
+  toast('已导出', 'ok')
+}
+
 async function saveAndSync(direction: 'push' | 'pull') {
   await saveSettingsLocal()
   syncStatus.value = { ok: false, detail: direction === 'push' ? '备份中…' : '恢复中…' }
@@ -648,11 +659,22 @@ window.addEventListener('keydown', e => {
             </label>
             <label class="check"><input v-model="settings.aggregateFallback" type="checkbox" /> 聚合 API 兜底</label>
             <label>歌词字号 <input v-model.number="settings.lyricFontSize" class="md-input narrow" type="number" min="12" max="28" /></label>
+            <label>默认搜索平台
+              <select v-model="settings.defaultSource" class="md-input narrow">
+                <option value="">全部</option>
+                <option value="wy">网易</option><option value="tx">QQ音乐</option>
+                <option value="kg">酷狗</option><option value="kw">酷我</option><option value="mg">咪咕</option>
+              </select>
+            </label>
+            <label>搜索条数 <input v-model.number="settings.searchLimit" class="md-input narrow" type="number" min="10" max="60" /></label>
             <button class="md-btn filled" @click="saveSettingsLocal">保存</button>
           </div>
         </div>
         <div v-if="settings" class="md-card" id="set-sync">
-          <h3>WebDAV 同步</h3>
+          <h3>备份与同步</h3>
+          <div class="row">
+            <button class="md-btn text" @click="exportData">导出数据 (JSON)</button>
+          </div>
           <div class="settings-form">
             <label>服务器地址 <input v-model="settings.webdavUrl" class="md-input" placeholder="https://dav.example.com/dav" /></label>
             <label>用户名 <input v-model="settings.webdavUsername" class="md-input" /></label>
@@ -816,7 +838,7 @@ body { margin: 0; font-family: 'Segoe UI', Roboto, system-ui, sans-serif; backgr
 .searchbar { display: flex; gap: 10px; align-items: center; }
 .row { display: flex; gap: 10px; margin-bottom: 14px; }
 .song-list { padding: 6px 0; }
-.song-row { display: flex; align-items: center; gap: 12px; padding: 10px 16px; border-radius: 12px; }
+.song-row { display: flex; align-items: center; gap: 12px; padding: 10px 16px; border-radius: 12px; content-visibility: auto; contain-intrinsic-size: auto 48px; }
 .song-row:hover { background: var(--md-surface-variant); }
 .song-row.playing .song-name { color: var(--md-primary); font-weight: 600; }
 .song-info { flex: 1; display: flex; flex-direction: column; min-width: 0; }

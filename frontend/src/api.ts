@@ -20,6 +20,8 @@ export interface Settings {
   webdavPassword: string
   webdavPath: string
   lyricFontSize: number
+  defaultSource: string
+  searchLimit: number
 }
 
 export interface ScriptInfo { id: string; filename: string; enabled: boolean }
