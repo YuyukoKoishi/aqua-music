@@ -11,12 +11,23 @@ const boardSongs = ref<SongResult[]>([])
 const boardLoading = ref(false)
 const selected = ref<Set<string>>(new Set())
 const themeColor = ref(localStorage.getItem('aqua-theme') ?? '74,159,216')
+const themeMode = ref(localStorage.getItem('aqua-theme-mode') ?? 'system')
 
 function applyTheme() {
   document.documentElement.style.setProperty('--md-primary', 'rgb(' + themeColor.value + ')')
   document.documentElement.style.setProperty('--md-primary-container', 'rgba(' + themeColor.value + ',0.18)')
+  const dark = themeMode.value === 'dark' || (themeMode.value === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches)
+  document.documentElement.dataset.theme = dark ? 'dark' : 'light'
   localStorage.setItem('aqua-theme', themeColor.value)
+  localStorage.setItem('aqua-theme-mode', themeMode.value)
 }
+function setThemeMode(v: string) {
+  themeMode.value = v
+  applyTheme()
+}
+window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
+  if (themeMode.value === 'system') applyTheme()
+})
 function setTheme(v: string) {
   themeColor.value = v
   applyTheme()
@@ -469,7 +480,10 @@ window.addEventListener('keydown', e => {
       <!-- 设置页 -->
       <section v-else class="fade-in">
         <div class="md-card">
-          <h3>主题色</h3>
+          <h3>主题</h3>
+          <div class="row" style="margin-bottom:12px">
+            <button v-for="m in (['light','dark','system'] as const)" :key="m" class="md-btn" :class="themeMode === m ? 'filled' : 'text'" @click="setThemeMode(m)">{{ { light: '浅色', dark: '深色', system: '跟随系统' }[m] }}</button>
+          </div>
           <div class="theme-row">
             <button v-for="p in THEME_PRESETS" :key="p.rgb" class="theme-dot" :style="{ background: 'rgb(' + p.rgb + ')', outline: themeColor === p.rgb ? '2px solid ' + 'rgb(' + p.rgb + ')' : 'none' }" :data-tip="p.label" @click="setTheme(p.rgb)"></button>
             <input class="md-input narrow" v-model="themeColor" placeholder="r,g,b" @change="applyTheme" />
@@ -607,14 +621,27 @@ window.addEventListener('keydown', e => {
   --md-primary: #4a9fd8;
   --md-primary-container: #d0e8fa;
   --md-surface: #f7f9fc;
+  --md-card: #ffffff;
   --md-surface-variant: #eef2f7;
   --md-on-surface: #1a1c1e;
   --md-on-surface-variant: #57606b;
   --md-outline: #c4c9d0;
   --md-error: #b3261e;
 }
+[data-theme='dark'] {
+  --md-surface: #121417;
+  --md-card: #1b1f24;
+  --md-surface-variant: #262b33;
+  --md-on-surface: #e2e6ea;
+  --md-on-surface-variant: #9aa4b1;
+  --md-outline: #3a414b;
+  --md-error: #f2b8b5;
+}
+[data-theme='dark'] .md-card { box-shadow: none; }
+[data-theme='dark'] .cover, [data-theme='dark'] .big-cover { filter: saturate(0.9); }
 * { box-sizing: border-box; }
-body { margin: 0; font-family: 'Segoe UI', Roboto, system-ui, sans-serif; background: var(--md-surface); color: var(--md-on-surface); }
+body { margin: 0; font-family: 'Segoe UI', Roboto, system-ui, sans-serif; background: var(--md-surface); color: var(--md-on-surface); transition: background 0.2s; }
+.md-card, .controlbar, .player-page { transition: background 0.2s, border-color 0.2s; }
 .app { display: flex; flex-direction: column; min-height: 100vh; }
 .topbar { display: flex; align-items: center; justify-content: space-between; padding: 10px 24px; background: var(--md-surface); border-bottom: 1px solid var(--md-surface-variant); }
 .brand { display: flex; align-items: center; gap: 10px; }
@@ -629,7 +656,7 @@ nav { display: flex; gap: 4px; }
   background: #333a45; color: #fff; padding: 3px 10px; border-radius: 6px; font-size: 12px; white-space: nowrap; z-index: 60;
 }
 .page { flex: 1; padding: 20px 28px; overflow-y: auto; padding-bottom: 110px; }
-.md-card { background: #fff; border-radius: 16px; padding: 18px 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); margin-bottom: 16px; }
+.md-card { background: var(--md-card); border-radius: 14px; padding: 18px 20px; border: 1px solid var(--md-surface-variant); margin-bottom: 16px; }
 .md-input { background: var(--md-surface-variant); border: none; border-radius: 10px; padding: 10px 14px; font-size: 14px; color: var(--md-on-surface); outline: none; flex: 1; }
 .md-input.narrow { flex: 0 0 120px; }
 .md-input:focus { outline: 2px solid var(--md-primary); }
@@ -673,10 +700,10 @@ nav { display: flex; gap: 4px; }
 .muted { color: var(--md-on-surface-variant); font-size: 13px; }
 
 /* 底部控制栏 */
-.controlbar { position: fixed; bottom: 0; left: 0; right: 0; height: 84px; background: #fff; border-top: 1px solid var(--md-surface-variant); display: flex; align-items: center; padding: 0 24px; gap: 20px; z-index: 40; box-shadow: 0 -2px 8px rgba(0,0,0,0.06); }
+.controlbar { position: fixed; bottom: 0; left: 0; right: 0; height: 84px; background: var(--md-card); border-top: 1px solid var(--md-surface-variant); display: flex; align-items: center; padding: 0 24px; gap: 20px; z-index: 40; }
 .controlbar.empty { justify-content: center; height: 56px; }
 .cb-song { display: flex; align-items: center; gap: 12px; width: 220px; cursor: pointer; }
-.cover { width: 52px; height: 52px; border-radius: 12px; background: linear-gradient(135deg, var(--md-primary), #7cc3ef); color: #fff; display: grid; place-items: center; font-size: 22px; }
+.cover { width: 52px; height: 52px; border-radius: 12px; background: var(--md-primary); color: #fff; display: grid; place-items: center; font-size: 22px; }
 .cb-meta { display: flex; flex-direction: column; min-width: 0; }
 .cb-meta strong { font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .cb-meta span { font-size: 12px; color: var(--md-on-surface-variant); }
@@ -690,10 +717,10 @@ nav { display: flex; gap: 4px; }
 .cb-right { display: flex; align-items: center; gap: 8px; width: 220px; justify-content: flex-end; }
 
 /* 播放页 */
-.player-overlay { position: fixed; inset: 0; background: rgba(10, 20, 30, 0.45); backdrop-filter: blur(6px); z-index: 50; display: grid; place-items: center; }
+.player-overlay { position: fixed; inset: 0; background: rgba(10, 20, 30, 0.55); z-index: 50; display: grid; place-items: center; }
 .player-page { position: relative; width: min(920px, 94vw); height: min(560px, 88vh); background: var(--md-surface); border-radius: 24px; display: flex; gap: 28px; padding: 48px 36px 28px; }
 .pp-left { width: 280px; display: flex; flex-direction: column; align-items: center; gap: 12px; }
-.big-cover { width: 220px; height: 220px; border-radius: 24px; background: linear-gradient(135deg, var(--md-primary), #7cc3ef); color: #fff; display: grid; place-items: center; font-size: 84px; box-shadow: 0 8px 24px rgba(74,159,216,0.35); }
+.big-cover { width: 220px; height: 220px; border-radius: 24px; background: var(--md-primary); color: #fff; display: grid; place-items: center; font-size: 84px; }
 .pp-left h2 { margin: 12px 0 0; font-size: 20px; text-align: center; }
 .pp-lyrics { flex: 1; overflow-y: auto; padding: 30px 10px; text-align: center; scroll-behavior: smooth; }
 .lyric-line { padding: 8px 0; color: var(--md-on-surface-variant); font-size: 15px; cursor: pointer; border-radius: 10px; display: flex; flex-direction: column; }
