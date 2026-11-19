@@ -18,28 +18,47 @@ const currentLyricIdx = ref(-1)
 const lyricsBox = ref<HTMLElement | null>(null)
 const playlists = ref<{ id: string; name: string; songs: SongResult[] }[]>([])
 const history = ref<{ song: SongResult; time: number; quality?: string }[]>([])
+const showPlayerPage = ref(false)
+const showQueue = ref(false)
+const showModeMenu = ref(false)
 
-async function refreshLibrary() {
-  playlists.value = (await (await fetch('/api/playlists')).json() as { playlists: typeof playlists.value }).playlists
-  const h = await (await fetch('/api/history')).json() as { entries: typeof history.value }
-  history.value = h.entries
-}
+const modes = [
+  { id: 'sequence', label: '顺序播放', icon: '⏭' },
+  { id: 'repeat-all', label: '列表循环', icon: '🔁' },
+  { id: 'repeat-one', label: '单曲循环', icon: '🔂' },
+  { id: 'shuffle', label: '随机播放', icon: '🔀' },
+] as const
 
 const currentSong = computed(() => player.queue[player.index] ?? null)
+const currentMode = computed(() => modes.find(m => m.id === player.mode) ?? modes[0])
 
 watch(() => player.currentTime, async (t) => {
   if (!currentLyrics.value.length) return
   const idx = currentLineIdx(currentLyrics.value, t)
   if (idx !== currentLyricIdx.value) {
     currentLyricIdx.value = idx
-    await nextTick()
-    const box = lyricsBox.value
-    if (box) {
-      const el = box.querySelector('.lyric-line.active') as HTMLElement | null
-      if (el) box.scrollTo({ top: el.offsetTop - box.clientHeight / 2 + el.clientHeight, behavior: 'smooth' })
+    if (showPlayerPage.value) {
+      await nextTick()
+      const box = lyricsBox.value
+      if (box && !box.dataset.userScroll) {
+        const el = box.querySelector('.lyric-line.active') as HTMLElement | null
+        if (el) box.scrollTo({ top: el.offsetTop - box.clientHeight / 2 + el.clientHeight, behavior: 'smooth' })
+      }
     }
   }
 })
+
+function onLyricScroll() {
+  const box = lyricsBox.value
+  if (!box) return
+  box.dataset.userScroll = '1'
+  clearTimeout((box as unknown as { _t?: number })._t)
+  ;(box as unknown as { _t?: number })._t = window.setTimeout(() => { delete box.dataset.userScroll }, 4000)
+}
+
+function onLyricClick(time: number) {
+  getAudio().currentTime = time
+}
 
 function pickQuality(types: string[]): string {
   for (const q of settings.value?.qualityOrder ?? []) if (types.includes(q)) return q
@@ -58,7 +77,7 @@ async function playResult(song: SongResult) {
     playUrl(url)
     currentLyrics.value = []
     currentLyricIdx.value = -1
-    await fetch('/api/history', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ song, quality }) })
+    void fetch('/api/history', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ song, quality }) })
     loadLyrics(song)
   } catch (e) {
     searchError.value = '播放失败: ' + (e instanceof Error ? e.message : String(e))
@@ -89,8 +108,10 @@ async function doSearch() {
 }
 
 async function loadLyrics(song: SongResult) {
+  const script = scripts.value.find(s => s.enabled)
+  if (!script) return
   try {
-    const resp = await fetch('/api/lyric?source=' + song.source + '&songmid=' + encodeURIComponent(song.songmid))
+    const resp = await fetch('/api/lyric?source=' + song.source + '&songmid=' + encodeURIComponent(song.songmid) + '&scriptId=' + script.id)
     if (resp.ok) {
       const j = await resp.json() as { lyric?: string }
       if (j.lyric) currentLyrics.value = parseLrcClient(j.lyric)
@@ -107,16 +128,17 @@ function seek(e: Event) {
   getAudio().currentTime = Number((e.target as HTMLInputElement).value)
 }
 
-const modes: { id: typeof player.mode; label: string }[] = [
-  { id: 'sequence', label: '顺序' }, { id: 'repeat-one', label: '单曲' },
-  { id: 'repeat-all', label: '循环' }, { id: 'shuffle', label: '随机' },
-]
 function cycleMode() {
   const idx = modes.findIndex(m => m.id === player.mode)
   player.mode = modes[(idx + 1) % modes.length].id
 }
 
 const newPlaylistName = ref('')
+async function refreshLibrary() {
+  playlists.value = (await (await fetch('/api/playlists')).json() as { playlists: typeof playlists.value }).playlists
+  const h = await (await fetch('/api/history')).json() as { entries: typeof history.value }
+  history.value = h.entries
+}
 async function createPlaylist() {
   if (!newPlaylistName.value.trim()) return
   await fetch('/api/playlists', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: newPlaylistName.value.trim() }) })
@@ -139,6 +161,7 @@ async function deletePlaylist(i: number) {
 }
 
 const downloadTasks = ref<{ song: SongResult; quality: string; status: string }[]>([])
+let pollTimer: number | undefined
 async function downloadSong(song: SongResult) {
   const script = scripts.value.find(s => s.enabled)
   if (!script) { searchError.value = '请先导入音源脚本'; return }
@@ -155,8 +178,6 @@ async function downloadSong(song: SongResult) {
     searchError.value = '下载失败: ' + (e instanceof Error ? e.message : String(e))
   }
 }
-
-let pollTimer: number | undefined
 function pollDownloads() {
   if (pollTimer) return
   pollTimer = window.setInterval(async () => {
@@ -205,156 +226,316 @@ void loadSettings()
 <template>
   <div class="app">
     <header class="topbar">
-      <h1>aqua-music</h1>
+      <div class="brand">
+        <span class="brand-icon">♪</span>
+        <span class="brand-name">aqua-music</span>
+      </div>
       <nav>
-        <button v-for="t in (['search','playlists','downloads','settings'] as const)" :key="t" :class="{ active: tab === t }" @click="tab = t">
-          {{ { search: '搜索', playlists: '歌单', downloads: '下载', settings: '设置' }[t] }}
+        <button v-for="t in (['search','playlists','downloads','settings'] as const)" :key="t" class="nav-btn" :class="{ active: tab === t }" :data-tip="{ search: '搜索', playlists: '歌单', downloads: '下载', settings: '设置' }[t]" @click="tab = t">
+          <span v-if="t === 'search'">⌕</span>
+          <span v-else-if="t === 'playlists'">☰</span>
+          <span v-else-if="t === 'downloads'">⤓</span>
+          <span v-else>⚙</span>
         </button>
       </nav>
     </header>
 
-    <main v-if="tab === 'search'">
-      <div class="searchbar">
-        <input v-model="keyword" placeholder="搜索歌名 / 歌手" @keyup.enter="doSearch" />
-        <select v-model="searchSource">
-          <option value="">全部平台</option>
-          <option value="wy">网易</option><option value="tx">QQ音乐</option>
-          <option value="kg">酷狗</option><option value="kw">酷我</option><option value="mg">咪咕</option>
-        </select>
-        <button :disabled="searching" @click="doSearch">{{ searching ? '搜索中…' : '搜索' }}</button>
-      </div>
-      <p v-if="searchError" class="error">{{ searchError }}</p>
-      <table v-if="searchResults.length" class="results">
-        <thead><tr><th>歌曲</th><th>歌手</th><th>专辑</th><th>音质</th><th>操作</th></tr></thead>
-        <tbody>
-          <tr v-for="s in searchResults" :key="s.source + s.songmid" :class="{ playing: currentSong?.songmid === s.songmid }">
-            <td>{{ s.name }}</td><td>{{ s.singer }}</td><td>{{ s.albumName }}</td>
-            <td>{{ s.types.join('/') }}</td>
-            <td>
-              <button @click="playResult(s)">播放</button>
-              <button @click="downloadSong(s)">下载</button>
-              <button @click="addToPlaylist(s)">收藏</button>
-            </td>
-          </tr>
-        </tbody>
-      </table>
-    </main>
-
-    <main v-else-if="tab === 'playlists'">
-      <div class="row">
-        <input v-model="newPlaylistName" placeholder="新歌单名称" @keyup.enter="createPlaylist" />
-        <button @click="createPlaylist">创建</button>
-        <button @click="clearHistory">清空播放历史</button>
-      </div>
-      <div v-for="(pl, i) in playlists" :key="pl.name" class="playlist">
-        <h3>{{ pl.name }} ({{ pl.songs.length }}) <button @click="deletePlaylist(i)">删除歌单</button></h3>
-        <ul>
-          <li v-for="(s, si) in pl.songs" :key="si">
-            {{ s.name }} - {{ s.singer }}
-            <button @click="playResult(s)">播放</button>
-            <button @click="removeFromPlaylist(i, si)">移除</button>
-          </li>
-        </ul>
-      </div>
-      <h3>播放历史</h3>
-      <ul class="history">
-        <li v-for="(h, i) in history" :key="i">{{ h.time }} — {{ h.song.name }} - {{ h.song.singer }}</li>
-      </ul>
-    </main>
-
-    <main v-else-if="tab === 'downloads'">
-      <table class="results">
-        <thead><tr><th>歌曲</th><th>音质</th><th>状态</th></tr></thead>
-        <tbody><tr v-for="(t, i) in downloadTasks" :key="i"><td>{{ t.song.name }} - {{ t.song.singer }}</td><td>{{ t.quality }}</td><td>{{ t.status }}</td></tr></tbody>
-      </table>
-      <p v-if="!downloadTasks.length" class="muted">暂无下载任务。在搜索页点「下载」加入队列。</p>
-    </main>
-
-    <main v-else>
-      <h3>音源脚本</h3>
-      <input type="file" accept=".js" @change="e => (e.target as HTMLInputElement).files?.[0] && onImportScript((e.target as HTMLInputElement).files![0])" />
-      <p v-if="scriptError" class="error">{{ scriptError }}</p>
-      <ul class="scripts">
-        <li v-for="s in scripts" :key="s.id">
-          <button @click="toggleScript(s)">{{ s.enabled ? '禁用' : '启用' }}</button>
-          {{ s.filename }} <code>{{ s.id.slice(0, 8) }}</code>
-          <button @click="removeScript(s.id)">删除</button>
-        </li>
-      </ul>
-      <h3>下载与播放设置</h3>
-      <div v-if="settings" class="settings-form">
-        <label>下载路径 <input v-model="settings.downloadDir" placeholder="D:/Music" /></label>
-        <label>命名模板 <input v-model="settings.nameTemplate" /></label>
-        <label>并发数 <input v-model.number="settings.concurrency" type="number" min="1" max="10" /></label>
-        <label>重名策略
-          <select v-model="settings.duplicatePolicy">
-            <option value="skip">跳过</option><option value="overwrite">覆盖</option><option value="rename">自动加序号</option>
+    <main class="page">
+      <!-- 搜索页 -->
+      <section v-if="tab === 'search'" class="fade-in">
+        <div class="searchbar md-card">
+          <input v-model="keyword" class="md-input" placeholder="搜索歌名 / 歌手" @keyup.enter="doSearch" />
+          <select v-model="searchSource" class="md-input narrow">
+            <option value="">全部</option>
+            <option value="wy">网易</option><option value="tx">QQ音乐</option>
+            <option value="kg">酷狗</option><option value="kw">酷我</option><option value="mg">咪咕</option>
           </select>
-        </label>
-        <label><input v-model="settings.aggregateFallback" type="checkbox" /> 聚合 API 兜底</label>
-        <button @click="saveSettingsLocal">保存设置</button>
-      </div>
+          <button class="md-btn filled" :disabled="searching" @click="doSearch">{{ searching ? '···' : '搜索' }}</button>
+        </div>
+        <p v-if="searchError" class="md-error">{{ searchError }}</p>
+        <div v-if="searchResults.length" class="song-list md-card">
+          <div v-for="s in searchResults" :key="s.source + s.songmid" class="song-row" :class="{ playing: currentSong?.songmid === s.songmid }">
+            <div class="song-info">
+              <span class="song-name">{{ s.name }}</span>
+              <span class="song-sub">{{ s.singer }} · {{ s.albumName }}</span>
+            </div>
+            <span class="song-badges"><i v-for="q in s.types.slice(0,3)" :key="q" class="badge">{{ q }}</i></span>
+            <div class="song-actions">
+              <button class="icon-btn" data-tip="播放" @click="playResult(s)">▶</button>
+              <button class="icon-btn" data-tip="下载" @click="downloadSong(s)">⤓</button>
+              <button class="icon-btn" data-tip="收藏" @click="addToPlaylist(s)">♡</button>
+            </div>
+          </div>
+        </div>
+        <p v-else-if="!searching && keyword" class="md-empty">没有结果</p>
+      </section>
+
+      <!-- 歌单页 -->
+      <section v-else-if="tab === 'playlists'" class="fade-in">
+        <div class="row">
+          <input v-model="newPlaylistName" class="md-input" placeholder="新歌单名称" @keyup.enter="createPlaylist" />
+          <button class="md-btn filled" @click="createPlaylist">创建</button>
+          <button class="md-btn text" data-tip="清空播放历史" @click="clearHistory">清空历史</button>
+        </div>
+        <div v-for="(pl, i) in playlists" :key="pl.id" class="md-card playlist">
+          <div class="pl-head">
+            <h3>{{ pl.name }} <span class="muted">({{ pl.songs.length }})</span></h3>
+            <button class="icon-btn" data-tip="删除歌单" @click="deletePlaylist(i)">🗑</button>
+          </div>
+          <div v-for="(s, si) in pl.songs" :key="si" class="song-row">
+            <div class="song-info">
+              <span class="song-name">{{ s.name }}</span>
+              <span class="song-sub">{{ s.singer }}</span>
+            </div>
+            <div class="song-actions">
+              <button class="icon-btn" data-tip="播放" @click="playResult(s)">▶</button>
+              <button class="icon-btn" data-tip="移除" @click="removeFromPlaylist(i, si)">✕</button>
+            </div>
+          </div>
+        </div>
+        <div class="md-card playlist">
+          <h3>播放历史</h3>
+          <div v-for="(h, i) in history" :key="i" class="song-row">
+            <div class="song-info">
+              <span class="song-name">{{ h.song.name }}</span>
+              <span class="song-sub">{{ new Date(h.time).toLocaleString() }} · {{ h.song.singer }}</span>
+            </div>
+            <div class="song-actions">
+              <button class="icon-btn" data-tip="播放" @click="playResult(h.song)">▶</button>
+            </div>
+          </div>
+          <p v-if="!history.length" class="md-empty">暂无历史</p>
+        </div>
+      </section>
+
+      <!-- 下载页 -->
+      <section v-else-if="tab === 'downloads'" class="fade-in">
+        <div class="song-list md-card">
+          <div v-for="(t, i) in downloadTasks" :key="i" class="song-row">
+            <div class="song-info">
+              <span class="song-name">{{ t.song.name }}</span>
+              <span class="song-sub">{{ t.song.singer }} · {{ t.quality }}</span>
+            </div>
+            <span class="badge" :class="{ ok: t.status.startsWith('done') || t.status.startsWith('完成'), err: t.status.startsWith('failed') || t.status.startsWith('失败') }">{{ t.status }}</span>
+          </div>
+          <p v-if="!downloadTasks.length" class="md-empty">暂无下载任务，在搜索页点 ⤓ 加入队列</p>
+        </div>
+      </section>
+
+      <!-- 设置页 -->
+      <section v-else class="fade-in">
+        <div class="md-card">
+          <h3>音源脚本</h3>
+          <label class="file-btn md-btn filled">
+            导入 .js 脚本
+            <input type="file" accept=".js" hidden @change="e => (e.target as HTMLInputElement).files?.[0] && onImportScript((e.target as HTMLInputElement).files![0])" />
+          </label>
+          <p v-if="scriptError" class="md-error">{{ scriptError }}</p>
+          <div v-for="s in scripts" :key="s.id" class="song-row">
+            <div class="song-info">
+              <span class="song-name">{{ s.filename }}</span>
+              <span class="song-sub">{{ s.id.slice(0, 12) }}</span>
+            </div>
+            <div class="song-actions">
+              <button class="icon-btn" :data-tip="s.enabled ? '禁用' : '启用'" @click="toggleScript(s)">{{ s.enabled ? '⏸' : '▶' }}</button>
+              <button class="icon-btn" data-tip="删除" @click="removeScript(s.id)">🗑</button>
+            </div>
+          </div>
+        </div>
+        <div v-if="settings" class="md-card">
+          <h3>播放与下载</h3>
+          <div class="settings-form">
+            <label>下载路径 <input v-model="settings.downloadDir" class="md-input" placeholder="D:/Music" /></label>
+            <label>命名模板 <input v-model="settings.nameTemplate" class="md-input" /></label>
+            <label>并发数 <input v-model.number="settings.concurrency" class="md-input narrow" type="number" min="1" max="10" /></label>
+            <label>重名策略
+              <select v-model="settings.duplicatePolicy" class="md-input narrow">
+                <option value="skip">跳过</option><option value="overwrite">覆盖</option><option value="rename">加序号</option>
+              </select>
+            </label>
+            <label class="check"><input v-model="settings.aggregateFallback" type="checkbox" /> 聚合 API 兜底</label>
+            <button class="md-btn filled" @click="saveSettingsLocal">保存</button>
+          </div>
+        </div>
+      </section>
     </main>
 
-    <footer class="playerbar" v-if="currentSong">
-      <div class="now">
-        <strong>{{ currentSong.name }}</strong>
-        <span>{{ currentSong.singer }} · {{ player.currentQuality }}</span>
-      </div>
-      <div class="controls">
-        <button @click="cycleMode">{{ modes.find(m => m.id === player.mode)?.label }}</button>
-        <button @click="togglePlay">{{ player.playing ? '暂停' : '播放' }}</button>
-        <span>{{ fmtTime(player.currentTime) }} / {{ fmtTime(player.duration) }}</span>
-        <input type="range" min="0" :max="player.duration || 0" step="0.1" :value="player.currentTime" @input="seek" class="progress" />
-        <input type="range" min="0" max="1" step="0.01" :value="player.volume" @input="e => { player.volume = Number((e.target as HTMLInputElement).value); getAudio().volume = player.volume }" class="volume" />
-      </div>
-      <div ref="lyricsBox" class="lyrics" v-if="currentLyrics.length">
-        <div v-for="(l, i) in currentLyrics" :key="i" class="lyric-line" :class="{ active: i === currentLyricIdx }">
-          {{ l.text }}<span v-if="l.translation" class="trans">{{ l.translation }}</span>
+    <!-- 底部控制栏 -->
+    <footer v-if="currentSong" class="controlbar">
+      <div class="cb-song" @click="showPlayerPage = true" data-tip="打开播放页">
+        <div class="cover">{{ currentSong.name.slice(0, 1) }}</div>
+        <div class="cb-meta">
+          <strong>{{ currentSong.name }}</strong>
+          <span>{{ currentSong.singer }}</span>
         </div>
       </div>
-      <div class="lyrics muted" v-else><p>暂无歌词</p></div>
-      <div class="queue">
-        <div v-for="(s, i) in player.queue" :key="i" :class="{ active: i === player.index }" @click="playResult(s)">{{ i + 1 }}. {{ s.name }}</div>
+      <div class="cb-center">
+        <div class="cb-buttons">
+          <button class="icon-btn" :data-tip="currentMode.label" @click="cycleMode">{{ currentMode.icon }}</button>
+          <button class="icon-btn big" data-tip="播放/暂停" @click="togglePlay">{{ player.playing ? '⏸' : '▶' }}</button>
+        </div>
+        <div class="cb-progress">
+          <span class="time">{{ fmtTime(player.currentTime) }}</span>
+          <input type="range" min="0" :max="player.duration || 0" step="0.1" :value="player.currentTime" @input="seek" class="md-slider" />
+          <span class="time">{{ fmtTime(player.duration) }}</span>
+        </div>
+      </div>
+      <div class="cb-right">
+        <button class="icon-btn" data-tip="音量">♫</button>
+        <input type="range" min="0" max="1" step="0.01" :value="player.volume" @input="e => { player.volume = Number((e.target as HTMLInputElement).value); getAudio().volume = player.volume }" class="md-slider vol" />
+        <button class="icon-btn" data-tip="播放队列" @click="showQueue = true">☰</button>
       </div>
     </footer>
-    <footer class="playerbar muted" v-else><p>点击搜索结果播放</p></footer>
+    <footer v-else class="controlbar empty"><span class="muted">在搜索页选一首歌开始播放</span></footer>
+
+    <!-- 播放页遮罩 -->
+    <div v-if="showPlayerPage" class="player-overlay" @click.self="showPlayerPage = false">
+      <div class="player-page">
+        <button class="icon-btn close" data-tip="关闭" @click="showPlayerPage = false">✕</button>
+        <div class="pp-left">
+          <div class="big-cover">{{ currentSong?.name.slice(0, 1) ?? '♪' }}</div>
+          <h2>{{ currentSong?.name }}</h2>
+          <p class="muted">{{ currentSong?.singer }} · {{ currentSong?.albumName }} · {{ player.currentQuality }}</p>
+        </div>
+        <div ref="lyricsBox" class="pp-lyrics" @scroll="onLyricScroll">
+          <template v-if="currentLyrics.length">
+            <div v-for="(l, i) in currentLyrics" :key="i" class="lyric-line" :class="{ active: i === currentLyricIdx }" @click="onLyricClick(l.time)">
+              <span>{{ l.text }}</span>
+              <span v-if="l.translation" class="trans">{{ l.translation }}</span>
+            </div>
+          </template>
+          <p v-else class="md-empty">暂无歌词</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- 队列菜单 -->
+    <div v-if="showQueue" class="queue-overlay" @click.self="showQueue = false">
+      <div class="queue-panel md-card">
+        <div class="pl-head"><h3>播放队列 ({{ player.queue.length }})</h3><button class="icon-btn" @click="showQueue = false">✕</button></div>
+        <div v-for="(s, i) in player.queue" :key="i" class="song-row" :class="{ playing: i === player.index }" @click="playResult(s)">
+          <div class="song-info">
+            <span class="song-name">{{ s.name }}</span>
+            <span class="song-sub">{{ s.singer }}</span>
+          </div>
+          <span v-if="i === player.index" class="badge">播放中</span>
+        </div>
+        <p v-if="!player.queue.length" class="md-empty">队列为空</p>
+      </div>
+    </div>
+
+    <!-- 模式菜单 -->
+    <div v-if="showModeMenu" class="mode-overlay" @click.self="showModeMenu = false">
+      <div class="mode-panel md-card">
+        <div v-for="m in modes" :key="m.id" class="song-row" :class="{ playing: m.id === player.mode }" @click="player.mode = m.id; showModeMenu = false">
+          <span>{{ m.icon }}</span>
+          <span>{{ m.label }}</span>
+          <span v-if="m.id === player.mode" class="badge">当前</span>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
 <style>
+:root {
+  --md-primary: #4a9fd8;
+  --md-primary-container: #d0e8fa;
+  --md-surface: #f7f9fc;
+  --md-surface-variant: #eef2f7;
+  --md-on-surface: #1a1c1e;
+  --md-on-surface-variant: #57606b;
+  --md-outline: #c4c9d0;
+  --md-error: #b3261e;
+}
 * { box-sizing: border-box; }
-body { margin: 0; font-family: system-ui, sans-serif; background: #0f1420; color: #dfe6f0; }
+body { margin: 0; font-family: 'Segoe UI', Roboto, system-ui, sans-serif; background: var(--md-surface); color: var(--md-on-surface); }
 .app { display: flex; flex-direction: column; min-height: 100vh; }
-.topbar { display: flex; align-items: center; gap: 24px; padding: 8px 20px; background: #161c2c; }
-.topbar h1 { font-size: 18px; color: #5ab0f0; margin: 0; }
-nav button { background: none; border: none; color: #9aa8bd; padding: 8px 14px; cursor: pointer; font-size: 14px; }
-nav button.active { color: #5ab0f0; border-bottom: 2px solid #5ab0f0; }
-main { flex: 1; padding: 16px 24px; overflow-y: auto; }
-.searchbar { display: flex; gap: 8px; margin-bottom: 12px; }
-input, select, button { background: #1d2536; color: #dfe6f0; border: 1px solid #2b364e; border-radius: 6px; padding: 6px 10px; font-size: 14px; }
-button { cursor: pointer; } button:hover { border-color: #5ab0f0; }
-.results { width: 100%; border-collapse: collapse; }
-.results th, .results td { text-align: left; padding: 6px 10px; border-bottom: 1px solid #232c40; }
-tr.playing td { color: #5ab0f0; }
-.error { color: #ef7b7b; }
-.muted { color: #6b7a92; }
-.playerbar { background: #161c2c; padding: 10px 24px; display: grid; grid-template-columns: 1fr 2fr; gap: 12px; }
-.now { display: flex; flex-direction: column; }
-.controls { display: flex; align-items: center; gap: 10px; }
-.progress { flex: 1; }
-.volume { width: 80px; }
-.lyrics { grid-column: 1 / 3; max-height: 160px; overflow-y: auto; text-align: center; }
-.lyric-line { padding: 3px 0; color: #8494ab; }
-.lyric-line.active { color: #5ab0f0; font-weight: 600; }
-.trans { margin-left: 10px; font-size: 12px; color: #6b7a92; }
-.queue { grid-column: 1 / 3; display: flex; flex-wrap: wrap; gap: 8px; max-height: 100px; overflow-y: auto; }
-.queue div { cursor: pointer; padding: 2px 8px; background: #1d2536; border-radius: 4px; font-size: 13px; }
-.queue div.active { color: #5ab0f0; }
-.playlist { margin-bottom: 16px; }
-.scripts { list-style: none; padding: 0; }
-.scripts li { display: flex; gap: 10px; align-items: center; padding: 6px 0; }
-.settings-form { display: flex; flex-direction: column; gap: 10px; max-width: 420px; }
-.history { list-style: none; padding: 0; color: #8494ab; font-size: 13px; }
-.row { display: flex; gap: 8px; margin-bottom: 16px; }
+.topbar { display: flex; align-items: center; justify-content: space-between; padding: 10px 24px; background: var(--md-surface); border-bottom: 1px solid var(--md-surface-variant); }
+.brand { display: flex; align-items: center; gap: 10px; }
+.brand-icon { width: 34px; height: 34px; display: grid; place-items: center; background: var(--md-primary); color: #fff; border-radius: 12px; font-size: 18px; }
+.brand-name { font-weight: 600; letter-spacing: 0.3px; }
+nav { display: flex; gap: 4px; }
+.nav-btn { position: relative; background: none; border: none; font-size: 18px; padding: 10px 18px; border-radius: 20px; cursor: pointer; color: var(--md-on-surface-variant); }
+.nav-btn.active { background: var(--md-primary-container); color: var(--md-on-surface); }
+.nav-btn:hover::after, .icon-btn:hover::after {
+  content: attr(data-tip);
+  position: absolute; bottom: -30px; left: 50%; transform: translateX(-50%);
+  background: #333a45; color: #fff; padding: 3px 10px; border-radius: 6px; font-size: 12px; white-space: nowrap; z-index: 60;
+}
+.page { flex: 1; padding: 20px 28px; overflow-y: auto; padding-bottom: 110px; }
+.md-card { background: #fff; border-radius: 16px; padding: 18px 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); margin-bottom: 16px; }
+.md-input { background: var(--md-surface-variant); border: none; border-radius: 10px; padding: 10px 14px; font-size: 14px; color: var(--md-on-surface); outline: none; flex: 1; }
+.md-input.narrow { flex: 0 0 120px; }
+.md-input:focus { outline: 2px solid var(--md-primary); }
+.md-btn { border: none; border-radius: 22px; padding: 10px 20px; font-size: 14px; cursor: pointer; }
+.md-btn.filled { background: var(--md-primary); color: #fff; }
+.md-btn.text { background: none; color: var(--md-primary); }
+.md-btn:disabled { opacity: 0.5; }
+.md-error { color: var(--md-error); font-size: 13px; }
+.md-empty { color: var(--md-on-surface-variant); text-align: center; padding: 20px 0; }
+.searchbar { display: flex; gap: 10px; align-items: center; }
+.row { display: flex; gap: 10px; margin-bottom: 14px; }
+.song-list { padding: 6px 0; }
+.song-row { display: flex; align-items: center; gap: 12px; padding: 10px 16px; border-radius: 12px; }
+.song-row:hover { background: var(--md-surface-variant); }
+.song-row.playing .song-name { color: var(--md-primary); font-weight: 600; }
+.song-info { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+.song-name { font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.song-sub { font-size: 12px; color: var(--md-on-surface-variant); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.song-badges { display: flex; gap: 4px; }
+.badge { font-style: normal; font-size: 10px; background: var(--md-surface-variant); color: var(--md-on-surface-variant); border-radius: 8px; padding: 2px 7px; }
+.badge.ok { background: #d7efd9; color: #1b5e20; }
+.badge.err { background: #f9d7d4; color: var(--md-error); }
+.song-actions { display: flex; gap: 2px; }
+.icon-btn { position: relative; background: none; border: none; font-size: 16px; padding: 8px; border-radius: 50%; cursor: pointer; color: var(--md-on-surface-variant); }
+.icon-btn:hover { background: var(--md-surface-variant); color: var(--md-primary); }
+.icon-btn.big { font-size: 22px; background: var(--md-primary); color: #fff; width: 46px; height: 46px; }
+.icon-btn.big:hover { color: #fff; background: #3a8cc7; }
+.icon-btn.close { position: absolute; top: 12px; right: 16px; font-size: 18px; }
+.playlist h3, .md-card h3 { margin: 4px 0 12px; font-size: 16px; }
+.pl-head { display: flex; justify-content: space-between; align-items: center; }
+.settings-form { display: flex; flex-direction: column; gap: 12px; max-width: 440px; }
+.settings-form label { display: flex; justify-content: space-between; align-items: center; gap: 12px; font-size: 14px; }
+.settings-form .md-input { max-width: 260px; }
+.check { justify-content: flex-start !important; }
+.file-btn { display: inline-block; }
+.muted { color: var(--md-on-surface-variant); font-size: 13px; }
+
+/* 底部控制栏 */
+.controlbar { position: fixed; bottom: 0; left: 0; right: 0; height: 84px; background: #fff; border-top: 1px solid var(--md-surface-variant); display: flex; align-items: center; padding: 0 24px; gap: 20px; z-index: 40; box-shadow: 0 -2px 8px rgba(0,0,0,0.06); }
+.controlbar.empty { justify-content: center; height: 56px; }
+.cb-song { display: flex; align-items: center; gap: 12px; width: 220px; cursor: pointer; }
+.cover { width: 52px; height: 52px; border-radius: 12px; background: linear-gradient(135deg, var(--md-primary), #7cc3ef); color: #fff; display: grid; place-items: center; font-size: 22px; }
+.cb-meta { display: flex; flex-direction: column; min-width: 0; }
+.cb-meta strong { font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cb-meta span { font-size: 12px; color: var(--md-on-surface-variant); }
+.cb-center { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 2px; }
+.cb-buttons { display: flex; align-items: center; gap: 14px; }
+.cb-progress { display: flex; align-items: center; gap: 10px; width: 100%; max-width: 560px; }
+.time { font-size: 11px; color: var(--md-on-surface-variant); width: 40px; text-align: center; }
+.md-slider { flex: 1; appearance: none; height: 4px; border-radius: 2px; background: var(--md-outline); outline: none; }
+.md-slider::-webkit-slider-thumb { appearance: none; width: 14px; height: 14px; border-radius: 50%; background: var(--md-primary); cursor: pointer; }
+.md-slider.vol { width: 90px; flex: none; }
+.cb-right { display: flex; align-items: center; gap: 8px; width: 220px; justify-content: flex-end; }
+
+/* 播放页 */
+.player-overlay { position: fixed; inset: 0; background: rgba(10, 20, 30, 0.45); backdrop-filter: blur(6px); z-index: 50; display: grid; place-items: center; }
+.player-page { position: relative; width: min(920px, 94vw); height: min(560px, 88vh); background: var(--md-surface); border-radius: 24px; display: flex; gap: 28px; padding: 48px 36px 28px; }
+.pp-left { width: 280px; display: flex; flex-direction: column; align-items: center; gap: 12px; }
+.big-cover { width: 220px; height: 220px; border-radius: 24px; background: linear-gradient(135deg, var(--md-primary), #7cc3ef); color: #fff; display: grid; place-items: center; font-size: 84px; box-shadow: 0 8px 24px rgba(74,159,216,0.35); }
+.pp-left h2 { margin: 12px 0 0; font-size: 20px; text-align: center; }
+.pp-lyrics { flex: 1; overflow-y: auto; padding: 30px 10px; text-align: center; scroll-behavior: smooth; }
+.lyric-line { padding: 8px 0; color: var(--md-on-surface-variant); font-size: 15px; cursor: pointer; border-radius: 10px; display: flex; flex-direction: column; }
+.lyric-line:hover { background: var(--md-surface-variant); }
+.lyric-line.active { color: var(--md-primary); font-size: 17px; font-weight: 600; }
+.trans { font-size: 12px; color: var(--md-on-surface-variant); margin-top: 2px; }
+
+/* 队列/模式菜单 */
+.queue-overlay, .mode-overlay { position: fixed; inset: 0; background: rgba(10,20,30,0.3); z-index: 55; }
+.queue-panel { position: fixed; right: 20px; bottom: 100px; width: 380px; max-height: 55vh; overflow-y: auto; z-index: 56; cursor: default; }
+.mode-panel { position: fixed; left: 50%; bottom: 100px; transform: translateX(-50%); width: 240px; z-index: 56; }
+.queue-panel .song-row, .mode-panel .song-row { cursor: pointer; }
+.fade-in { animation: fade 0.25s ease; }
+@keyframes fade { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; } }
 </style>
